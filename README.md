@@ -1,3 +1,5 @@
+## When a pull request is opened from this branch (non_visually_altering_changes) towards the vester_visual_testing branch, the "HTTP Request to Vester on pull_request for visual testing" action will start and [Vester](https://mk7.tech/Vester/API) will confirm that the changes of this branch do not alter the visuals of the resulting application ( confirming that vester_visual_testing visuals won't be altered by the merge with non_visually_altering_changes )
+
 # 🖌 egui: an easy-to-use GUI in pure Rust
 
 [<img alt="github" src="https://img.shields.io/badge/github-emilk/egui-8da0cb?logo=github" height="20">](https://github.com/emilk/egui)
