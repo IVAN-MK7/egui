@@ -1,3 +1,5 @@
+## When a pull request is opened from this branch (visually_altering_changes) towards the vester_visual_testing branch, the "HTTP Request to Vester on pull_request for visual testing" action will start and [Vester](https://mk7.tech/Vester/API) will warn that the changes of this branch alter the visuals of the resulting application ( therefore vester_visual_testing's visuals will be altered in case of a merge with visually_altering_changes ). In this example case Vester will return a warning because it recognizes that the underline stroke of Hyperlinks that should appear when they are hovered is missing ( the images representing the visual differences can be requested at the [Vester API page](https://mk7.tech/Vester/API) using the same token configured in this GitHub repository's [Actions secrets](https://github.com/IVAN-MK7/egui/settings/secrets/actions) ).
+
 # 🖌 egui: an easy-to-use GUI in pure Rust
 
 [<img alt="github" src="https://img.shields.io/badge/github-emilk/egui-8da0cb?logo=github" height="20">](https://github.com/emilk/egui)

@@ -43,13 +43,14 @@ impl Widget for Link {
 
         if ui.is_rect_visible(response.rect) {
             let color = ui.visuals().hyperlink_color;
-            let visuals = ui.style().interact(&response);
+            /*let visuals = ui.style().interact(&response);
 
             let underline = if response.hovered() || response.has_focus() {
                 Stroke::new(visuals.fg_stroke.width, color)
             } else {
                 Stroke::NONE
-            };
+            };*/
+            let underline = Stroke::NONE;
 
             ui.painter().add(epaint::TextShape {
                 pos,
