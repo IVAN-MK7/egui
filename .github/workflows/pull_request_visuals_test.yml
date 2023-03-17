@@ -18,7 +18,7 @@ jobs:
         method: 'POST'
         customHeaders: '{"Content-Type": "application/json", "Accept": "application/json, text/plain, */*"}'
         #data: '{"token": ${{ secrets.VESTER_TOKEN }}, "repository_url": "https://github.com/IVAN-MK7/egui", "repository_branch_name": "vester_visual_testing"}'
-        data: '{"token": ${{ secrets.VESTER_TOKEN }}, "repository_url": "${{ github.event.pull_request.head.repo.html_url }}", "repository_branch_name": "${{ github.event.pull_request.head.ref }}"}'
+        data: '{"token": "x", "repository_url": "${{ github.event.pull_request.head.repo.html_url }}", "repository_branch_name": "${{ github.event.pull_request.head.ref }}"}'
         timeout: 400000
 
     - name: Show Response
