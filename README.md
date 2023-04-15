@@ -1,4 +1,4 @@
-### When a pull request is opened rowards this branch the "HTTP Request to Vester on pull_request for visual testing" action will start, and [Vester](https://mk7.tech/Vester/API) will run and visually analyze the "egui demo app" resulting from the merging branch, and then report if its new commits cause alterations to the app's visuals or not ( meaning that if they do: the vester_visual_testing's visuals will be altered in case of a merge with merging branch ).
+### When a pull request is opened towards this branch the "HTTP Request to Vester on pull_request for visual testing" action will start, and [Vester](https://mk7.tech/Vester/API) will run and visually analyze the "egui demo app" resulting from the merging branch, and then report if its new commits cause alterations to the app's visuals or not ( meaning that if they do: the vester_visual_testing's visuals will be altered in case of a merge with merging branch ).
 
 # 🖌 egui: an easy-to-use GUI in pure Rust
 
