@@ -1,3 +1,5 @@
+### When a pull request is opened from this branch (master, synced with [emilk's egui master branch](https://github.com/emilk/egui)) towards the [vester_visual_testing branch](https://github.com/IVAN-MK7/egui), the "HTTP Request to Vester on pull_request for visual testing" action will start and [Vester](https://mk7.tech/Vester/API) will run and visually analyze the "egui demo app" resulting from this branch, and then report if its new commits cause alterations to the app's visuals or not ( meaning that if they do: the vester_visual_testing's visuals will be altered in case of a merge with master ). Given the low processing power of the hosting server the analisys of the visual responses resulting from the interations with every widget present in the egui demo app takes about 10 minutes.
+
 # 🖌 egui: an easy-to-use GUI in pure Rust
 
 [<img alt="github" src="https://img.shields.io/badge/github-emilk/egui-8da0cb?logo=github" height="20">](https://github.com/emilk/egui)
