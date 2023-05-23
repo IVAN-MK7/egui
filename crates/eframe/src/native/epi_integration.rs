@@ -118,6 +118,12 @@ pub fn window_builder<E>(
             .with_fullsize_content_view(true);
     }
 
+    #[cfg(all(feature = "wayland", target_os = "linux"))]
+    if let Some(app_id) = &native_options.app_id {
+        use winit::platform::wayland::WindowBuilderExtWayland as _;
+        window_builder = window_builder.with_name(app_id, "");
+    }
+
     if let Some(min_size) = *min_window_size {
         window_builder = window_builder.with_min_inner_size(points_to_size(min_size));
     }
@@ -557,6 +563,7 @@ impl EpiIntegration {
         }
     }
 
+    #[allow(clippy::unused_self)]
     pub fn save(&mut self, _app: &mut dyn epi::App, _window: &winit::window::Window) {
         #[cfg(feature = "persistence")]
         if let Some(storage) = self.frame.storage_mut() {
