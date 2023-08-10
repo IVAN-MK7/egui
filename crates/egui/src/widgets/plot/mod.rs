@@ -864,7 +864,7 @@ impl Plot {
                 delta.y = 0.0;
             }
             transform.translate_bounds(delta);
-            bounds_modified = true.into();
+            bounds_modified = allow_drag;
         }
 
         // Zooming
@@ -935,7 +935,7 @@ impl Plot {
                 }
                 if zoom_factor != Vec2::splat(1.0) {
                     transform.zoom(zoom_factor, hover_pos);
-                    bounds_modified = true.into();
+                    bounds_modified = allow_zoom;
                 }
             }
             if allow_scroll {
@@ -1081,17 +1081,25 @@ impl PlotUi {
             .push(BoundsModification::Translate(delta_pos));
     }
 
+    /// Can be used to check if the plot was hovered or clicked.
+    pub fn response(&self) -> &Response {
+        &self.response
+    }
+
     /// Returns `true` if the plot area is currently hovered.
+    #[deprecated = "Use plot_ui.response().hovered()"]
     pub fn plot_hovered(&self) -> bool {
         self.response.hovered()
     }
 
     /// Returns `true` if the plot was clicked by the primary button.
+    #[deprecated = "Use plot_ui.response().clicked()"]
     pub fn plot_clicked(&self) -> bool {
         self.response.clicked()
     }
 
     /// Returns `true` if the plot was clicked by the secondary button.
+    #[deprecated = "Use plot_ui.response().secondary_clicked()"]
     pub fn plot_secondary_clicked(&self) -> bool {
         self.response.secondary_clicked()
     }

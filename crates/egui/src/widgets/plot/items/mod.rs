@@ -997,6 +997,7 @@ impl PlotItem for Points {
 pub struct Arrows {
     pub(super) origins: PlotPoints,
     pub(super) tips: PlotPoints,
+    pub(super) tip_length: Option<f32>,
     pub(super) color: Color32,
     pub(super) name: String,
     pub(super) highlight: bool,
@@ -1007,6 +1008,7 @@ impl Arrows {
         Self {
             origins: origins.into(),
             tips: tips.into(),
+            tip_length: None,
             color: Color32::TRANSPARENT,
             name: Default::default(),
             highlight: false,
@@ -1016,6 +1018,12 @@ impl Arrows {
     /// Highlight these arrows in the plot.
     pub fn highlight(mut self, highlight: bool) -> Self {
         self.highlight = highlight;
+        self
+    }
+
+    /// Set the length of the arrow tips
+    pub fn tip_length(mut self, tip_length: f32) -> Self {
+        self.tip_length = Some(tip_length);
         self
     }
 
@@ -1044,6 +1052,7 @@ impl PlotItem for Arrows {
         let Self {
             origins,
             tips,
+            tip_length,
             color,
             highlight,
             ..
@@ -1062,7 +1071,11 @@ impl PlotItem for Arrows {
             .for_each(|(origin, tip)| {
                 let vector = tip - origin;
                 let rot = Rot2::from_angle(std::f32::consts::TAU / 10.0);
-                let tip_length = vector.length() / 4.0;
+                let tip_length = if let Some(tip_length) = tip_length {
+                    *tip_length
+                } else {
+                    vector.length() / 4.0
+                };
                 let tip = origin + vector;
                 let dir = vector.normalized();
                 shapes.push(Shape::line_segment([origin, tip], stroke));
@@ -1119,6 +1132,7 @@ pub struct PlotImage {
     pub(super) tint: Color32,
     pub(super) highlight: bool,
     pub(super) name: String,
+    pub(crate) rotation: Option<(f32, Vec2)>,
 }
 
 impl PlotImage {
@@ -1137,6 +1151,7 @@ impl PlotImage {
             size: size.into(),
             bg_fill: Default::default(),
             tint: Color32::WHITE,
+            rotation: None,
         }
     }
 
@@ -1175,6 +1190,17 @@ impl PlotImage {
         self.name = name.to_string();
         self
     }
+
+    /// Rotate the image about an origin by some angle
+    ///
+    /// Positive angle is clockwise.
+    /// Origin is a vector in normalized UV space ((0,0) in top-left, (1,1) bottom right).
+    ///
+    /// To rotate about the center you can pass `Vec2::splat(0.5)` as the origin.
+    pub fn rotate(mut self, angle: f32, origin: Vec2) -> Self {
+        self.rotation = Some((angle, origin));
+        self
+    }
 }
 
 impl PlotItem for PlotImage {
@@ -1202,11 +1228,14 @@ impl PlotItem for PlotImage {
             let right_bottom_tf = transform.position_from_point(&right_bottom);
             Rect::from_two_pos(left_top_tf, right_bottom_tf)
         };
-        Image::new(*texture_id, *size)
+        let mut image = Image::new(*texture_id, *size)
             .bg_fill(*bg_fill)
             .tint(*tint)
-            .uv(*uv)
-            .paint_at(ui, rect);
+            .uv(*uv);
+        if let Some((angle, origin)) = self.rotation {
+            image = image.rotate(angle, origin);
+        }
+        image.paint_at(ui, rect);
         if *highlight {
             shapes.push(Shape::rect_stroke(
                 rect,

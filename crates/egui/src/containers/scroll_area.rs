@@ -459,7 +459,7 @@ impl ScrollArea {
                     content_clip_rect.max[d] = ui.clip_rect().max[d] - current_bar_use[d];
                 }
             }
-            // Make sure we din't accidentally expand the clip rect
+            // Make sure we didn't accidentally expand the clip rect
             content_clip_rect = content_clip_rect.intersect(ui.clip_rect());
             content_ui.set_clip_rect(content_clip_rect);
         }
@@ -640,8 +640,7 @@ impl Prepared {
                     let min = content_ui.min_rect().min[d];
                     let clip_rect = content_ui.clip_rect();
                     let visible_range = min..=min + clip_rect.size()[d];
-                    let start = *scroll.start();
-                    let end = *scroll.end();
+                    let (start, end) = (scroll.min, scroll.max);
                     let clip_start = clip_rect.min[d];
                     let clip_end = clip_rect.max[d];
                     let mut spacing = ui.spacing().item_spacing[d];

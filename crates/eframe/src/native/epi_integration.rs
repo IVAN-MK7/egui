@@ -3,6 +3,8 @@ use winit::event_loop::EventLoopWindowTarget;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::WindowBuilderExtMacOS as _;
 
+use raw_window_handle::{HasRawDisplayHandle as _, HasRawWindowHandle as _};
+
 #[cfg(feature = "accesskit")]
 use egui::accesskit;
 use egui::NumExt as _;
@@ -119,9 +121,12 @@ pub fn window_builder<E>(
     }
 
     #[cfg(all(feature = "wayland", target_os = "linux"))]
-    if let Some(app_id) = &native_options.app_id {
+    {
         use winit::platform::wayland::WindowBuilderExtWayland as _;
-        window_builder = window_builder.with_name(app_id, "");
+        match &native_options.app_id {
+            Some(app_id) => window_builder = window_builder.with_name(app_id, ""),
+            None => window_builder = window_builder.with_name(title, ""),
+        }
     }
 
     if let Some(min_size) = *min_window_size {
@@ -380,6 +385,8 @@ impl EpiIntegration {
             #[cfg(feature = "wgpu")]
             wgpu_render_state,
             screenshot: std::cell::Cell::new(None),
+            raw_display_handle: window.raw_display_handle(),
+            raw_window_handle: window.raw_window_handle(),
         };
 
         let mut egui_winit = egui_winit::State::new(event_loop);
@@ -558,24 +565,26 @@ impl EpiIntegration {
     pub fn maybe_autosave(&mut self, app: &mut dyn epi::App, window: &winit::window::Window) {
         let now = std::time::Instant::now();
         if now - self.last_auto_save > app.auto_save_interval() {
-            self.save(app, window);
+            self.save(app, Some(window));
             self.last_auto_save = now;
         }
     }
 
     #[allow(clippy::unused_self)]
-    pub fn save(&mut self, _app: &mut dyn epi::App, _window: &winit::window::Window) {
+    pub fn save(&mut self, _app: &mut dyn epi::App, _window: Option<&winit::window::Window>) {
         #[cfg(feature = "persistence")]
         if let Some(storage) = self.frame.storage_mut() {
             crate::profile_function!();
 
-            if _app.persist_native_window() {
-                crate::profile_scope!("native_window");
-                epi::set_value(
-                    storage,
-                    STORAGE_WINDOW_KEY,
-                    &WindowSettings::from_display(_window),
-                );
+            if let Some(window) = _window {
+                if _app.persist_native_window() {
+                    crate::profile_scope!("native_window");
+                    epi::set_value(
+                        storage,
+                        STORAGE_WINDOW_KEY,
+                        &WindowSettings::from_display(window),
+                    );
+                }
             }
             if _app.persist_egui_memory() {
                 crate::profile_scope!("egui_memory");
