@@ -1,6 +1,6 @@
 on: [push, pull_request]
 
-name: CI
+name: Rust
 
 env:
   # web_sys_unstable_apis is required to enable the web_sys clipboard API which eframe web uses,
@@ -19,7 +19,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.67.0
 
       - name: Install packages (Linux)
         if: runner.os == 'Linux'
@@ -36,6 +36,9 @@ jobs:
 
       - name: Rustfmt
         run: cargo fmt --all -- --check
+
+      - name: Lint vertical spacing
+        run: ./scripts/lint.py
 
       - name: Install cargo-cranky
         uses: baptiste0928/cargo-install@v1
@@ -58,7 +61,7 @@ jobs:
         run: cargo check --locked --no-default-features --lib --all-targets -p epaint
 
       - name: check eframe --no-default-features
-        run: cargo check --locked --no-default-features --lib --all-targets -p eframe
+        run: cargo check --locked --no-default-features --features x11 --lib --all-targets -p eframe
 
       - name: Test doc-tests
         run: cargo test --doc --all-features
@@ -84,7 +87,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.67.0
           targets: wasm32-unknown-unknown
 
       - run: sudo apt-get update && sudo apt-get install libgtk-3-dev
@@ -109,7 +112,7 @@ jobs:
       - name: wasm-bindgen
         uses: jetli/wasm-bindgen-action@v0.1.0
         with:
-          version: "0.2.86"
+          version: "0.2.87"
 
       - run: ./scripts/wasm_bindgen_check.sh --skip-setup
 
@@ -142,10 +145,10 @@ jobs:
       - uses: actions/checkout@v3
       - uses: EmbarkStudios/cargo-deny-action@v1
         with:
-          rust-version: "1.65.0"
+          rust-version: "1.67.0"
           log-level: error
           command: check
-          arguments: ${{ matrix.flags }} --target  ${{ matrix.target }}
+          arguments: --target  ${{ matrix.target }}
 
   # ---------------------------------------------------------------------------
 
@@ -157,7 +160,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.67.0
           targets: aarch64-linux-android
 
       - name: Set up cargo cache
@@ -175,7 +178,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.67.0
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2

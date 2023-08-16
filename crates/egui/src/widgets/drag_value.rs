@@ -11,6 +11,7 @@ use crate::*;
 pub(crate) struct MonoState {
     last_dragged_id: Option<Id>,
     last_dragged_value: Option<f64>,
+
     /// For temporary edit of a [`DragValue`] value.
     /// Couples with the current focus id.
     edit_string: Option<String>,
@@ -404,7 +405,9 @@ impl<'a> Widget for DragValue<'a> {
 
         let auto_decimals = (aim_rad / speed.abs()).log10().ceil().clamp(0.0, 15.0) as usize;
         let auto_decimals = auto_decimals + is_slow_speed as usize;
-        let max_decimals = max_decimals.unwrap_or(auto_decimals + 2);
+        let max_decimals = max_decimals
+            .unwrap_or(auto_decimals + 2)
+            .at_least(min_decimals);
         let auto_decimals = auto_decimals.clamp(min_decimals, max_decimals);
 
         let change = ui.input_mut(|input| {
@@ -624,7 +627,7 @@ impl<'a> Widget for DragValue<'a> {
             // The value is exposed as a string by the text edit widget
             // when in edit mode.
             if !is_kb_editing {
-                let value_text = format!("{}{}{}", prefix, value_text, suffix);
+                let value_text = format!("{prefix}{value_text}{suffix}");
                 builder.set_value(value_text);
             }
         });

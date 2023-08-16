@@ -22,6 +22,7 @@ use super::epi_integration::{self, EpiIntegration};
 pub enum UserEvent {
     RequestRepaint {
         when: Instant,
+
         /// What the frame number was when the repaint was _requested_.
         frame_nr: u64,
     },
@@ -144,12 +145,12 @@ fn run_and_return(
             // Platform-dependent event handlers to workaround a winit bug
             // See: https://github.com/rust-windowing/winit/issues/987
             // See: https://github.com/rust-windowing/winit/issues/1619
-            #[cfg(windows)]
+            #[cfg(target_os = "windows")]
             winit::event::Event::RedrawEventsCleared => {
                 next_repaint_time = extremely_far_future();
                 winit_app.run_ui_and_paint()
             }
-            #[cfg(not(windows))]
+            #[cfg(not(target_os = "windows"))]
             winit::event::Event::RedrawRequested(_) => {
                 next_repaint_time = extremely_far_future();
                 winit_app.run_ui_and_paint()
@@ -195,7 +196,7 @@ fn run_and_return(
             EventResult::Wait => {}
             EventResult::RepaintNow => {
                 log::trace!("Repaint caused by winit::Event: {:?}", event);
-                if cfg!(windows) {
+                if cfg!(target_os = "windows") {
                     // Fix flickering on Windows, see https://github.com/emilk/egui/pull/2280
                     next_repaint_time = extremely_far_future();
                     winit_app.run_ui_and_paint();
@@ -244,7 +245,7 @@ fn run_and_return(
     //
     // Note that this approach may cause issues on macOS (emilk/egui#2768); therefore,
     // we only apply this approach on Windows to minimize the affect.
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     {
         event_loop.run_return(|_, _, control_flow| {
             control_flow.set_exit();
@@ -269,11 +270,11 @@ fn run_and_exit(event_loop: EventLoop<UserEvent>, mut winit_app: impl WinitApp +
             // Platform-dependent event handlers to workaround a winit bug
             // See: https://github.com/rust-windowing/winit/issues/987
             // See: https://github.com/rust-windowing/winit/issues/1619
-            winit::event::Event::RedrawEventsCleared if cfg!(windows) => {
+            winit::event::Event::RedrawEventsCleared if cfg!(target_os = "windows") => {
                 next_repaint_time = extremely_far_future();
                 winit_app.run_ui_and_paint()
             }
-            winit::event::Event::RedrawRequested(_) if !cfg!(windows) => {
+            winit::event::Event::RedrawRequested(_) if !cfg!(target_os = "windows") => {
                 next_repaint_time = extremely_far_future();
                 winit_app.run_ui_and_paint()
             }
@@ -301,7 +302,7 @@ fn run_and_exit(event_loop: EventLoop<UserEvent>, mut winit_app: impl WinitApp +
         match event_result {
             EventResult::Wait => {}
             EventResult::RepaintNow => {
-                if cfg!(windows) {
+                if cfg!(target_os = "windows") {
                     // Fix flickering on Windows, see https://github.com/emilk/egui/pull/2280
                     next_repaint_time = extremely_far_future();
                     winit_app.run_ui_and_paint();
@@ -674,7 +675,11 @@ mod glow_integration {
             glutin_window_context.on_resume(event_loop)?;
 
             if let Some(window) = &glutin_window_context.window {
-                epi_integration::apply_native_options_to_window(window, native_options);
+                epi_integration::apply_native_options_to_window(
+                    window,
+                    native_options,
+                    window_settings,
+                );
             }
 
             let gl = unsafe {
@@ -707,7 +712,7 @@ mod glow_integration {
 
             let painter =
                 egui_glow::Painter::new(gl.clone(), "", self.native_options.shader_version)
-                    .unwrap_or_else(|error| panic!("some OpenGL error occurred {}\n", error));
+                    .unwrap_or_else(|err| panic!("An OpenGL error occurred: {err}\n"));
 
             let system_theme = system_theme(gl_window.window(), &self.native_options);
             let mut integration = epi_integration::EpiIntegration::new(
@@ -1127,7 +1132,11 @@ mod wgpu_integration {
             let window_builder =
                 epi_integration::window_builder(event_loop, title, native_options, window_settings);
             let window = window_builder.build(event_loop)?;
-            epi_integration::apply_native_options_to_window(&window, native_options);
+            epi_integration::apply_native_options_to_window(
+                &window,
+                native_options,
+                window_settings,
+            );
             Ok(window)
         }
 

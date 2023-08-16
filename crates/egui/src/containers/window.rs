@@ -21,6 +21,9 @@ use super::*;
 ///    ui.label("Hello World!");
 /// });
 /// # });
+/// ```
+///
+/// The previous rectangle used by this window can be obtained through [`crate::Memory::area_rect()`].
 #[must_use = "You should call .show()"]
 pub struct Window<'open> {
     title: WidgetText,
@@ -263,6 +266,14 @@ impl<'open> Window<'open> {
     /// Enable/disable vertical scrolling. `false` by default.
     pub fn vscroll(mut self, vscroll: bool) -> Self {
         self.scroll = self.scroll.vscroll(vscroll);
+        self
+    }
+
+    /// Enable/disable scrolling on the window by dragging with the pointer. `true` by default.
+    ///
+    /// See [`ScrollArea::drag_to_scroll`] for more.
+    pub fn drag_to_scroll(mut self, drag_to_scroll: bool) -> Self {
+        self.scroll = self.scroll.drag_to_scroll(drag_to_scroll);
         self
     }
 
