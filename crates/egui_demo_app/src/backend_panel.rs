@@ -148,6 +148,7 @@ impl BackendPanel {
 
         #[cfg(target_arch = "wasm32")]
         ui.collapsing("Web info (location)", |ui| {
+            ui.style_mut().wrap = Some(false);
             ui.monospace(format!("{:#?}", frame.info().web_info.location));
         });
 
@@ -231,8 +232,7 @@ impl BackendPanel {
                 if ui
                     .add_enabled(enabled, egui::Button::new("Reset"))
                     .on_hover_text(format!(
-                        "Reset scale to native value ({:.1})",
-                        native_pixels_per_point
+                        "Reset scale to native value ({native_pixels_per_point:.1})"
                     ))
                     .clicked()
                 {
@@ -440,7 +440,7 @@ impl EguiWindows {
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         for event in output_event_history {
-                            ui.label(format!("{:?}", event));
+                            ui.label(format!("{event:?}"));
                         }
                     });
             });

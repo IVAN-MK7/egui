@@ -3,8 +3,11 @@ All notable changes to the `eframe` crate.
 
 NOTE: [`egui-winit`](../egui-winit/CHANGELOG.md), [`egui_glium`](../egui_glium/CHANGELOG.md), [`egui_glow`](../egui_glow/CHANGELOG.md),and [`egui-wgpu`](../egui-wgpu/CHANGELOG.md) have their own changelogs!
 
+This file is updated upon each release.
+Changes since the last release can be found by running the `scripts/generate_changelog.py` script.
 
-## Unreleased
+
+## 0.22.0 - 2023-05-23
 * Fix: `request_repaint_after` works even when called from background thread [#2939](https://github.com/emilk/egui/pull/2939)
 * Clear all keys and modifies on focus change [#2857](https://github.com/emilk/egui/pull/2857) [#2933](https://github.com/emilk/egui/pull/2933)
 * Remove dark-light dependency [#2929](https://github.com/emilk/egui/pull/2929)
@@ -26,13 +29,15 @@ NOTE: [`egui-winit`](../egui-winit/CHANGELOG.md), [`egui_glium`](../egui_glium/C
 * Read and request window focus [#2900](https://github.com/emilk/egui/pull/2900) (thanks [@TicClick](https://github.com/TicClick)!)
 * Set app icon on Mac and Windows [#2940](https://github.com/emilk/egui/pull/2940)
 * Set a default icon for all eframe apps: a white `e` on black background [#2996](https://github.com/emilk/egui/pull/2996)
-* Add `NativeOptions::app_id` for the persistance location [#3014](https://github.com/emilk/egui/pull/3014) and for Wayland [#3007](https://github.com/emilk/egui/pull/3007) (thanks [@thomaskrause](https://github.com/thomaskrause)!)
+* Add `NativeOptions::app_id` for the persistence location [#3014](https://github.com/emilk/egui/pull/3014) and for Wayland [#3007](https://github.com/emilk/egui/pull/3007) (thanks [@thomaskrause](https://github.com/thomaskrause)!)
 * capture a screenshot using `Frame::request_screenshot` [870264b](https://github.com/emilk/egui/commit/870264b00577a95d3fd9bdf36efaf87fd351de62)
 
 
 #### Web:
-* Prefer the client width/height for the canvas parent [#2804](https://github.com/emilk/egui/pull/2804) (thanks [@samitbasu](https://github.com/samitbasu)!)
+* ⚠️ BREAKING: `eframe::start_web` has been replaced with `eframe::WebRunner`, which also installs a nice panic hook (no need for `console_error_panic_hook`).
 * ⚠️ BREAKING: WebGPU is now the default web renderer when using the `wgpu` feature of `eframe`. To use WebGL with `wgpu`, you need to add `wgpu = { version = "0.16.0", features = ["webgl"] }` to your own `Cargo.toml`. ([#2945](https://github.com/emilk/egui/pull/2945))
+* Add `eframe::WebLogger` for redirecting `log` calls to the web console (`console.log`).
+* Prefer the client width/height for the canvas parent [#2804](https://github.com/emilk/egui/pull/2804) (thanks [@samitbasu](https://github.com/samitbasu)!)
 * eframe web: Persist app state to local storage when leaving site [#2927](https://github.com/emilk/egui/pull/2927)
 * Better panic handling [#2942](https://github.com/emilk/egui/pull/2942) [#2992](https://github.com/emilk/egui/pull/2992)
 * Update wasm-bindgen to 0.2.86 [#2995](https://github.com/emilk/egui/pull/2995)
