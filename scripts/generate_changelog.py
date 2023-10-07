@@ -3,7 +3,8 @@
 """
 Summarizes recent PRs based on their GitHub labels.
 
-The result can be copy-pasted into CHANGELOG.md, though it often needs some manual editing too.
+The result can be copy-pasted into CHANGELOG.md,
+though it often needs some manual editing too.
 """
 
 import multiprocessing
@@ -89,7 +90,9 @@ def fetch_pr_info(pr_number: int) -> Optional[PrInfo]:
 def get_commit_info(commit: Any) -> CommitInfo:
     match = re.match(r"(.*) \(#(\d+)\)", commit.summary)
     if match:
-        return CommitInfo(hexsha=commit.hexsha, title=str(match.group(1)), pr_number=int(match.group(2)))
+        title = str(match.group(1))
+        pr_number = int(match.group(2))
+        return CommitInfo(hexsha=commit.hexsha, title=title, pr_number=pr_number)
     else:
         return CommitInfo(hexsha=commit.hexsha, title=commit.summary, pr_number=None)
 
@@ -104,8 +107,9 @@ def print_section(crate: str, items: List[str]) -> None:
     if 0 < len(items):
         print(f"#### {crate}")
         for line in items:
-            line = remove_prefix(line, f"{crate}: ")
             line = remove_prefix(line, f"[{crate}] ")
+            line = remove_prefix(line, f"{crate}: ")
+            line = remove_prefix(line, f"`{crate}`: ")
             print(f"* {line}")
     print()
 
@@ -131,6 +135,7 @@ def main() -> None:
         "ecolor",
         "eframe",
         "egui_extras",
+        "egui_plot",
         "egui_glow",
         "egui-wgpu",
         "egui-winit",
@@ -140,8 +145,6 @@ def main() -> None:
     sections = {}
     unsorted_prs = []
     unsorted_commits = []
-
-    plot = []
 
     for commit_info, pr_info in zip(commit_infos, pr_infos):
         hexsha = commit_info.hexsha
@@ -153,8 +156,15 @@ def main() -> None:
             summary = f"{title} [{hexsha[:7]}](https://github.com/{OWNER}/{REPO}/commit/{hexsha})"
             unsorted_commits.append(summary)
         else:
-            title = pr_info.pr_title if pr_info else title  # We prefer the PR title if available
+            # We prefer the PR title if available
+            title = pr_info.pr_title if pr_info else title
             labels = pr_info.labels if pr_info else []
+
+            if 'exclude from changelog' in labels:
+                continue
+            if 'typo' in labels:
+                # We get so many typo PRs. Let's not flood the changelog with them.
+                continue
 
             summary = f"{title} [#{pr_number}](https://github.com/{OWNER}/{REPO}/pull/{pr_number})"
 
@@ -166,18 +176,12 @@ def main() -> None:
                 if gh_user_name not in OFFICIAL_DEVS:
                     summary += f" (thanks [@{gh_user_name}](https://github.com/{gh_user_name})!)"
 
-            if 'typo' in labels:
-                continue # We get so many typo PRs. Let's not flood the changelog with them.
-
             added = False
-            if 'plot' in labels:
-                plot.append(summary)
-                added = True
-            else:
-                for crate in crate_names:
-                    if crate in labels:
-                        sections.setdefault(crate, []).append(summary)
-                        added = True
+
+            for crate in crate_names:
+                if crate in labels:
+                    sections.setdefault(crate, []).append(summary)
+                    added = True
 
             if not added:
                 if not any(label in labels for label in ignore_labels):
@@ -188,9 +192,6 @@ def main() -> None:
         if crate in sections:
             summary = sections[crate]
             print_section(crate, summary)
-            if crate == 'egui':
-                if 0 < len(plot):
-                    print_section("egui plot", plot)
     print_section("Unsorted PRs", unsorted_prs)
     print_section("Unsorted commits", unsorted_commits)
 

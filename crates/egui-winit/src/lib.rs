@@ -53,7 +53,7 @@ pub struct EventResponse {
 
 /// Handles the integration between egui and winit.
 pub struct State {
-    start_time: instant::Instant,
+    start_time: web_time::Instant,
     egui_input: egui::RawInput,
     pointer_pos_in_points: Option<egui::Pos2>,
     any_pointer_button_down: bool,
@@ -80,14 +80,12 @@ pub struct State {
 
     #[cfg(feature = "accesskit")]
     accesskit: Option<accesskit_winit::Adapter>,
+
+    allow_ime: bool,
 }
 
 impl State {
     /// Construct a new instance
-    ///
-    /// # Safety
-    ///
-    /// The returned `State` must not outlive the input `display_target`.
     pub fn new(display_target: &dyn HasRawDisplayHandle) -> Self {
         let egui_input = egui::RawInput {
             focused: false, // winit will tell us when we have focus
@@ -95,7 +93,7 @@ impl State {
         };
 
         Self {
-            start_time: instant::Instant::now(),
+            start_time: web_time::Instant::now(),
             egui_input,
             pointer_pos_in_points: None,
             any_pointer_button_down: false,
@@ -111,6 +109,8 @@ impl State {
 
             #[cfg(feature = "accesskit")]
             accesskit: None,
+
+            allow_ime: false,
         }
     }
 
@@ -194,6 +194,8 @@ impl State {
         egui_ctx: &egui::Context,
         event: &winit::event::WindowEvent<'_>,
     ) -> EventResponse {
+        crate::profile_function!();
+
         use winit::event::WindowEvent;
         match event {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -289,7 +291,7 @@ impl State {
                             .events
                             .push(egui::Event::CompositionEnd(text.clone()));
                     }
-                    winit::event::Ime::Preedit(text, ..) => {
+                    winit::event::Ime::Preedit(text, Some(_)) => {
                         if !self.input_method_editor_started {
                             self.input_method_editor_started = true;
                             self.egui_input.events.push(egui::Event::CompositionStart);
@@ -298,6 +300,7 @@ impl State {
                             .events
                             .push(egui::Event::CompositionUpdate(text.clone()));
                     }
+                    winit::event::Ime::Preedit(_, None) => {}
                 };
 
                 EventResponse {
@@ -665,6 +668,12 @@ impl State {
             self.clipboard.set(copied_text);
         }
 
+        let allow_ime = text_cursor_pos.is_some();
+        if self.allow_ime != allow_ime {
+            self.allow_ime = allow_ime;
+            window.set_ime_allowed(allow_ime);
+        }
+
         if let Some(egui::Pos2 { x, y }) = text_cursor_pos {
             window.set_ime_position(winit::dpi::LogicalPosition { x, y });
         }
@@ -770,7 +779,7 @@ fn translate_virtual_key_code(key: winit::event::VirtualKeyCode) -> Option<egui:
         VirtualKeyCode::Escape => Key::Escape,
         VirtualKeyCode::Tab => Key::Tab,
         VirtualKeyCode::Back => Key::Backspace,
-        VirtualKeyCode::Return => Key::Enter,
+        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => Key::Enter,
         VirtualKeyCode::Space => Key::Space,
 
         VirtualKeyCode::Insert => Key::Insert,
@@ -780,10 +789,12 @@ fn translate_virtual_key_code(key: winit::event::VirtualKeyCode) -> Option<egui:
         VirtualKeyCode::PageUp => Key::PageUp,
         VirtualKeyCode::PageDown => Key::PageDown,
 
-        VirtualKeyCode::Minus => Key::Minus,
+        VirtualKeyCode::Minus | VirtualKeyCode::NumpadSubtract => Key::Minus,
         // Using Mac the key with the Plus sign on it is reported as the Equals key
         // (with both English and Swedish keyboard).
-        VirtualKeyCode::Equals => Key::PlusEquals,
+        VirtualKeyCode::Equals | VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd => {
+            Key::PlusEquals
+        }
 
         VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => Key::Num0,
         VirtualKeyCode::Key1 | VirtualKeyCode::Numpad1 => Key::Num1,
@@ -896,26 +907,30 @@ fn translate_cursor(cursor_icon: egui::CursorIcon) -> Option<winit::window::Curs
 
 // ---------------------------------------------------------------------------
 
-/// Profiling macro for feature "puffin"
-#[allow(unused_macros)]
-macro_rules! profile_function {
-    ($($arg: tt)*) => {
-        #[cfg(feature = "puffin")]
-        puffin::profile_function!($($arg)*);
-    };
+mod profiling_scopes {
+    #![allow(unused_macros)]
+    #![allow(unused_imports)]
+
+    /// Profiling macro for feature "puffin"
+    macro_rules! profile_function {
+        ($($arg: tt)*) => {
+            #[cfg(feature = "puffin")]
+            #[cfg(not(target_arch = "wasm32"))] // Disabled on web because of the coarse 1ms clock resolution there.
+            puffin::profile_function!($($arg)*);
+        };
+    }
+    pub(crate) use profile_function;
+
+    /// Profiling macro for feature "puffin"
+    macro_rules! profile_scope {
+        ($($arg: tt)*) => {
+            #[cfg(feature = "puffin")]
+            #[cfg(not(target_arch = "wasm32"))] // Disabled on web because of the coarse 1ms clock resolution there.
+            puffin::profile_scope!($($arg)*);
+        };
+    }
+    pub(crate) use profile_scope;
 }
 
 #[allow(unused_imports)]
-pub(crate) use profile_function;
-
-/// Profiling macro for feature "puffin"
-#[allow(unused_macros)]
-macro_rules! profile_scope {
-    ($($arg: tt)*) => {
-        #[cfg(feature = "puffin")]
-        puffin::profile_scope!($($arg)*);
-    };
-}
-
-#[allow(unused_imports)]
-pub(crate) use profile_scope;
+pub(crate) use profiling_scopes::*;

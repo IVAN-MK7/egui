@@ -13,6 +13,10 @@ use crate::*;
 /// of `min` and `max` are swapped. These are usually a sign of an error.
 ///
 /// Normally the unit is points (logical pixels) in screen space coordinates.
+///
+/// `Rect` does NOT implement `Default`, because there is no obvious default value.
+/// [`Rect::ZERO`] may seem reasonable, but when used as a bounding box, [`Rect::NOTHING`]
+/// is a better default - so be explicit instead!
 #[repr(C)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -360,9 +364,17 @@ impl Rect {
     /// Signed distance to the edge of the box.
     ///
     /// Negative inside the box.
+    ///
+    /// ```
+    /// # use emath::{pos2, Rect};
+    /// let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(0.50, 0.50)), -0.50);
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(0.75, 0.50)), -0.25);
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(1.50, 0.50)), 0.50);
+    /// ```
     pub fn signed_distance_to_pos(&self, pos: Pos2) -> f32 {
         let edge_distances = (pos - self.center()).abs() - self.size() * 0.5;
-        let inside_dist = edge_distances.x.max(edge_distances.y).min(0.0);
+        let inside_dist = edge_distances.max_elem().min(0.0);
         let outside_dist = edge_distances.max(Vec2::ZERO).length();
         inside_dist + outside_dist
     }

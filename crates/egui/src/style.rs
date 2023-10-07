@@ -2,7 +2,9 @@
 
 #![allow(clippy::if_same_then_else)]
 
-use crate::{ecolor::*, emath::*, FontFamily, FontId, Response, RichText, WidgetText};
+use crate::{
+    ecolor::*, emath::*, ComboBox, CursorIcon, FontFamily, FontId, Response, RichText, WidgetText,
+};
 use epaint::{Rounding, Shadow, Stroke};
 use std::collections::BTreeMap;
 
@@ -199,6 +201,9 @@ pub struct Style {
     pub animation_time: f32,
 
     /// Options to help debug why egui behaves strangely.
+    ///
+    /// Only available in debug builds.
+    #[cfg(debug_assertions)]
     pub debug: DebugOptions,
 
     /// Show tooltips explaining [`DragValue`]:s etc when hovered.
@@ -544,6 +549,16 @@ pub struct Visuals {
     ///
     /// Enabling this will affect ALL sliders, and can be enabled/disabled per slider with [`Slider::trailing_fill`].
     pub slider_trailing_fill: bool,
+
+    /// Should the cursor change when the user hovers over an interactive/clickable item?
+    ///
+    /// This is consistent with a lot of browser-based applications (vscode, github
+    /// all turn your cursor into [`CursorIcon::PointingHand`] when a button is
+    /// hovered) but it is inconsistent with native UI toolkits.
+    pub interact_cursor: Option<CursorIcon>,
+
+    /// Show a spinner when loading an image.
+    pub image_loading_spinners: bool,
 }
 
 impl Visuals {
@@ -678,11 +693,35 @@ impl WidgetVisuals {
 }
 
 /// Options for help debug egui by adding extra visualization
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg(debug_assertions)]
 pub struct DebugOptions {
-    /// However over widgets to see their rectangles
+    /// Always show callstack to ui on hover.
+    ///
+    /// Useful for figuring out where in the code some UI is being created.
+    ///
+    /// Only works in debug builds.
+    /// Requires the `callstack` feature.
+    /// Does not work on web.
+    #[cfg(debug_assertions)]
     pub debug_on_hover: bool,
+
+    /// Show callstack for the current widget on hover if all modifier keys are pressed down.
+    ///
+    /// Useful for figuring out where in the code some UI is being created.
+    ///
+    /// Only works in debug builds.
+    /// Requires the `callstack` feature.
+    /// Does not work on web.
+    ///
+    /// Default is `true` in debug builds, on native, if the `callstack` feature is enabled.
+    #[cfg(debug_assertions)]
+    pub debug_on_hover_with_all_modifiers: bool,
+
+    /// If we show the hover ui, include where the next widget is placed.
+    #[cfg(debug_assertions)]
+    pub hover_shows_next: bool,
 
     /// Show which widgets make their parent wider
     pub show_expand_width: bool,
@@ -697,6 +736,23 @@ pub struct DebugOptions {
 
     /// Show what widget blocks the interaction of another widget.
     pub show_blocking_widget: bool,
+}
+
+#[cfg(debug_assertions)]
+impl Default for DebugOptions {
+    fn default() -> Self {
+        Self {
+            debug_on_hover: false,
+            debug_on_hover_with_all_modifiers: cfg!(feature = "callstack")
+                && !cfg!(target_arch = "wasm32"),
+            hover_shows_next: false,
+            show_expand_width: false,
+            show_expand_height: false,
+            show_resize: false,
+            show_interactive_widgets: false,
+            show_blocking_widget: false,
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -727,6 +783,7 @@ impl Default for Style {
             interaction: Interaction::default(),
             visuals: Visuals::default(),
             animation_time: 1.0 / 12.0,
+            #[cfg(debug_assertions)]
             debug: Default::default(),
             explanation_tooltips: false,
         }
@@ -806,6 +863,10 @@ impl Visuals {
             striped: false,
 
             slider_trailing_fill: false,
+
+            interact_cursor: None,
+
+            image_loading_spinners: true,
         }
     }
 
@@ -977,6 +1038,7 @@ impl Style {
             interaction,
             visuals,
             animation_time,
+            #[cfg(debug_assertions)]
             debug,
             explanation_tooltips,
         } = self;
@@ -1039,6 +1101,8 @@ impl Style {
         ui.collapsing("📏 Spacing", |ui| spacing.ui(ui));
         ui.collapsing("☝ Interaction", |ui| interaction.ui(ui));
         ui.collapsing("🎨 Visuals", |ui| visuals.ui(ui));
+
+        #[cfg(debug_assertions)]
         ui.collapsing("🐛 Debug", |ui| debug.ui(ui));
 
         ui.checkbox(explanation_tooltips, "Explanation tooltips")
@@ -1376,6 +1440,9 @@ impl Visuals {
             striped,
 
             slider_trailing_fill,
+            interact_cursor,
+
+            image_loading_spinners,
         } = self;
 
         ui.collapsing("Background Colors", |ui| {
@@ -1441,14 +1508,30 @@ impl Visuals {
 
         ui.checkbox(slider_trailing_fill, "Add trailing color to sliders");
 
+        ComboBox::from_label("Interact Cursor")
+            .selected_text(format!("{interact_cursor:?}"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(interact_cursor, None, "None");
+
+                for icon in CursorIcon::ALL {
+                    ui.selectable_value(interact_cursor, Some(icon), format!("{icon:?}"));
+                }
+            });
+
+        ui.checkbox(image_loading_spinners, "Image loading spinners")
+            .on_hover_text("Show a spinner when an Image is loading");
+
         ui.vertical_centered(|ui| reset_button(ui, self));
     }
 }
 
+#[cfg(debug_assertions)]
 impl DebugOptions {
     pub fn ui(&mut self, ui: &mut crate::Ui) {
         let Self {
             debug_on_hover,
+            debug_on_hover_with_all_modifiers,
+            hover_shows_next,
             show_expand_width,
             show_expand_height,
             show_resize,
@@ -1456,7 +1539,16 @@ impl DebugOptions {
             show_blocking_widget,
         } = self;
 
-        ui.checkbox(debug_on_hover, "Show debug info on hover");
+        {
+            ui.checkbox(debug_on_hover, "Show widget info on hover.");
+            ui.checkbox(
+                debug_on_hover_with_all_modifiers,
+                "Show widget info on hover if holding all modifier keys",
+            );
+
+            ui.checkbox(hover_shows_next, "Show next widget placement on hover");
+        }
+
         ui.checkbox(
             show_expand_width,
             "Show which widgets make their parent wider",

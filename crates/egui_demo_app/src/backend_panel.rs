@@ -62,7 +62,7 @@ pub struct BackendPanel {
 }
 
 impl BackendPanel {
-    pub fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    pub fn update(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         self.frame_history
             .on_new_frame(ctx.input(|i| i.time), frame.info().cpu_usage);
 
@@ -82,8 +82,6 @@ impl BackendPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        egui::trace!(ui);
-
         self.integration_ui(ui, frame);
 
         ui.separator();
@@ -101,11 +99,9 @@ impl BackendPanel {
 
         ui.separator();
 
-        {
-            let mut debug_on_hover = ui.ctx().debug_on_hover();
-            ui.checkbox(&mut debug_on_hover, "🐛 Debug on hover")
-                .on_hover_text("Show structure of the ui when you hover with the mouse");
-            ui.ctx().set_debug_on_hover(debug_on_hover);
+        #[cfg(debug_assertions)]
+        if ui.ctx().style().debug.debug_on_hover_with_all_modifiers {
+            ui.label("Press down all modifiers and hover a widget to see a callstack for it");
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -155,7 +151,7 @@ impl BackendPanel {
         // On web, the browser controls `pixels_per_point`.
         let integration_controls_pixels_per_point = frame.is_web();
         if !integration_controls_pixels_per_point {
-            self.pixels_per_point_ui(ui, &frame.info());
+            self.pixels_per_point_ui(ui, frame.info());
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -451,10 +447,13 @@ impl EguiWindows {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn call_after_delay(delay: std::time::Duration, f: impl FnOnce() + Send + 'static) {
-    std::thread::spawn(move || {
-        std::thread::sleep(delay);
-        f();
-    });
+    std::thread::Builder::new()
+        .name("call_after_delay".to_owned())
+        .spawn(move || {
+            std::thread::sleep(delay);
+            f();
+        })
+        .unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]

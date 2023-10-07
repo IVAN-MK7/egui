@@ -1,4 +1,5 @@
-#![allow(clippy::derive_hash_xor_eq)] // We need to impl Hash for f32, but we don't implement Eq, which is fine
+#![allow(clippy::derived_hash_with_manual_eq)] // We need to impl Hash for f32, but we don't implement Eq, which is fine
+#![allow(clippy::wrong_self_convention)] // We use `from_` to indicate conversion direction. It's non-diomatic, but makes sense in this context.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -221,10 +222,27 @@ impl std::hash::Hash for LayoutSection {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Hash, PartialEq)]
+/// Formatting option for a section of text.
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct TextFormat {
     pub font_id: FontId,
+
+    /// Extra spacing between letters, in points.
+    ///
+    /// Default: 0.0.
+    ///
+    /// For even text it is recommended you round this to an even number of _pixels_.
+    pub extra_letter_spacing: f32,
+
+    /// Explicit line height of the text in points.
+    ///
+    /// This is the distance between the bottom row of two subsequent lines of text.
+    ///
+    /// If `None` (the default), the line height is determined by the font.
+    ///
+    /// For even text it is recommended you round this to an even number of _pixels_.
+    pub line_height: Option<f32>,
 
     /// Text color
     pub color: Color32,
@@ -248,6 +266,8 @@ impl Default for TextFormat {
     fn default() -> Self {
         Self {
             font_id: FontId::default(),
+            extra_letter_spacing: 0.0,
+            line_height: None,
             color: Color32::GRAY,
             background: Color32::TRANSPARENT,
             italics: false,
@@ -255,6 +275,34 @@ impl Default for TextFormat {
             strikethrough: Stroke::NONE,
             valign: Align::BOTTOM,
         }
+    }
+}
+
+impl std::hash::Hash for TextFormat {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let Self {
+            font_id,
+            extra_letter_spacing,
+            line_height,
+            color,
+            background,
+            italics,
+            underline,
+            strikethrough,
+            valign,
+        } = self;
+        font_id.hash(state);
+        crate::f32_hash(state, *extra_letter_spacing);
+        if let Some(line_height) = *line_height {
+            crate::f32_hash(state, line_height);
+        }
+        color.hash(state);
+        background.hash(state);
+        italics.hash(state);
+        underline.hash(state);
+        strikethrough.hash(state);
+        valign.hash(state);
     }
 }
 
@@ -346,7 +394,7 @@ impl Default for TextWrapping {
 }
 
 impl TextWrapping {
-    /// A row can be as long as it need to be
+    /// A row can be as long as it need to be.
     pub fn no_max_width() -> Self {
         Self {
             max_width: f32::INFINITY,
@@ -354,8 +402,8 @@ impl TextWrapping {
         }
     }
 
-    /// Elide text that doesn't fit within the given width.
-    pub fn elide_at_width(max_width: f32) -> Self {
+    /// Elide text that doesn't fit within the given width, replaced with `…`.
+    pub fn truncate_at_width(max_width: f32) -> Self {
         Self {
             max_width,
             max_rows: 1,
@@ -427,6 +475,9 @@ pub struct Galley {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Row {
+    /// This is included in case there are no glyphs
+    pub section_index_at_start: u32,
+
     /// One for each `char`.
     pub glyphs: Vec<Glyph>,
 
@@ -486,10 +537,12 @@ pub struct Glyph {
     /// `ascent` value from the font
     pub ascent: f32,
 
-    /// Advance width and font row height.
+    /// Advance width and line height.
+    ///
+    /// Does not control the visual size of the glyph (see [`Self::uv_rect`] for that).
     pub size: Vec2,
 
-    /// Position of the glyph in the font texture, in texels.
+    /// Position and size of the glyph in the font texture, in texels.
     pub uv_rect: UvRect,
 
     /// Index into [`LayoutJob::sections`]. Decides color etc.
@@ -511,6 +564,11 @@ impl Glyph {
 // ----------------------------------------------------------------------------
 
 impl Row {
+    /// The text on this row, excluding the implicit `\n` if any.
+    pub fn text(&self) -> String {
+        self.glyphs.iter().map(|g| g.chr).collect()
+    }
+
     /// Excludes the implicit `\n` after the [`Row`], if any.
     #[inline]
     pub fn char_count_excluding_newline(&self) -> usize {

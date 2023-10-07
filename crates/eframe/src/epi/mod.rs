@@ -28,7 +28,7 @@ use static_assertions::assert_not_impl_any;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(any(feature = "glow", feature = "wgpu"))]
-pub use winit::event_loop::EventLoopBuilder;
+pub use winit::{event_loop::EventLoopBuilder, window::WindowBuilder};
 
 /// Hook into the building of an event loop before it is run
 ///
@@ -37,6 +37,14 @@ pub use winit::event_loop::EventLoopBuilder;
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(any(feature = "glow", feature = "wgpu"))]
 pub type EventLoopBuilderHook = Box<dyn FnOnce(&mut EventLoopBuilder<UserEvent>)>;
+
+/// Hook into the building of a the native window.
+///
+/// You can configure any platform specific details required on top of the default configuration
+/// done by `eframe`.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(feature = "glow", feature = "wgpu"))]
+pub type WindowBuilderHook = Box<dyn FnOnce(WindowBuilder) -> WindowBuilder>;
 
 /// This is how your app is created.
 ///
@@ -118,7 +126,7 @@ pub trait App {
     ///
     /// Can be used from web to interact or other external context.
     ///
-    /// You need to implement this if you want to be able to access the application from JS using [`crate::web::backend::AppRunner`].
+    /// You need to implement this if you want to be able to access the application from JS using [`crate::WebRunner::app_mut`].
     ///
     /// This is needed because downcasting `Box<dyn App>` -> `Box<dyn Any>` to get &`ConcreteApp` is not simple in current rust.
     ///
@@ -139,13 +147,8 @@ pub trait App {
     /// Only called when the "persistence" feature is enabled.
     ///
     /// On web the state is stored to "Local Storage".
-    /// On native the path is picked using [`directories_next::ProjectDirs::data_dir`](https://docs.rs/directories-next/2.0.0/directories_next/struct.ProjectDirs.html#method.data_dir) which is:
-    /// * Linux:   `/home/UserName/.local/share/APP_ID`
-    /// * macOS:   `/Users/UserName/Library/Application Support/APP_ID`
-    /// * Windows: `C:\Users\UserName\AppData\Roaming\APP_ID`
     ///
-    /// where `APP_ID` is determined by either [`NativeOptions::app_id`] or
-    /// the title argument to [`crate::run_native`].
+    /// On native the path is picked using [`crate::storage_dir`].
     fn save(&mut self, _storage: &mut dyn Storage) {}
 
     /// Called when the user attempts to close the desktop window and/or quit the application.
@@ -187,13 +190,6 @@ pub trait App {
         std::time::Duration::from_secs(30)
     }
 
-    /// The size limit of the web app canvas.
-    ///
-    /// By default the max size is [`egui::Vec2::INFINITY`], i.e. unlimited.
-    fn max_size_points(&self) -> egui::Vec2 {
-        egui::Vec2::INFINITY
-    }
-
     /// Background color values for the app, e.g. what is sent to `gl.clearColor`.
     ///
     /// This is the background of your windows if you don't set a central panel.
@@ -211,12 +207,6 @@ pub trait App {
         egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
 
         // _visuals.window_fill() would also be a natural choice
-    }
-
-    /// Controls whether or not the native window position and size will be
-    /// persisted (only if the "persistence" feature is enabled).
-    fn persist_native_window(&self) -> bool {
-        true
     }
 
     /// Controls whether or not the egui memory (window positions etc) will be
@@ -318,6 +308,7 @@ pub struct NativeOptions {
     pub resizable: bool,
 
     /// On desktop: make the window transparent.
+    ///
     /// You control the transparency with [`App::clear_color()`].
     /// You should avoid having a [`egui::CentralPanel`], or make sure its frame is also transparent.
     pub transparent: bool,
@@ -402,6 +393,15 @@ pub struct NativeOptions {
     #[cfg(any(feature = "glow", feature = "wgpu"))]
     pub event_loop_builder: Option<EventLoopBuilderHook>,
 
+    /// Hook into the building of a window.
+    ///
+    /// Specify a callback here in case you need to make platform specific changes to the
+    /// window appearance.
+    ///
+    /// Note: A [`NativeOptions`] clone will not include any `window_builder` hook.
+    #[cfg(any(feature = "glow", feature = "wgpu"))]
+    pub window_builder: Option<WindowBuilderHook>,
+
     #[cfg(feature = "glow")]
     /// Needed for cross compiling for VirtualBox VMSVGA driver with OpenGL ES 2.0 and OpenGL 2.1 which doesn't support SRGB texture.
     /// See <https://github.com/emilk/egui/pull/1993>.
@@ -422,13 +422,10 @@ pub struct NativeOptions {
 
     /// The application id, used for determining the folder to persist the app to.
     ///
-    /// On native the path is picked using [`directories_next::ProjectDirs::data_dir`](https://docs.rs/directories-next/2.0.0/directories_next/struct.ProjectDirs.html#method.data_dir) which is:
-    /// * Linux:   `/home/UserName/.local/share/APP_ID`
-    /// * macOS:   `/Users/UserName/Library/Application Support/APP_ID`
-    /// * Windows: `C:\Users\UserName\AppData\Roaming\APP_ID`
+    /// On native the path is picked using [`crate::storage_dir`].
     ///
     /// If you don't set [`Self::app_id`], the title argument to [`crate::run_native`]
-    /// will be used instead.
+    /// will be used as app id instead.
     ///
     /// ### On Wayland
     /// On Wayland this sets the Application ID for the window.
@@ -463,6 +460,10 @@ pub struct NativeOptions {
     /// }
     /// ```
     pub app_id: Option<String>,
+
+    /// Controls whether or not the native window position and size will be
+    /// persisted (only if the "persistence" feature is enabled).
+    pub persist_window: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -473,6 +474,9 @@ impl Clone for NativeOptions {
 
             #[cfg(any(feature = "glow", feature = "wgpu"))]
             event_loop_builder: None, // Skip any builder callbacks if cloning
+
+            #[cfg(any(feature = "glow", feature = "wgpu"))]
+            window_builder: None, // Skip any builder callbacks if cloning
 
             #[cfg(feature = "wgpu")]
             wgpu_options: self.wgpu_options.clone(),
@@ -528,6 +532,9 @@ impl Default for NativeOptions {
             #[cfg(any(feature = "glow", feature = "wgpu"))]
             event_loop_builder: None,
 
+            #[cfg(any(feature = "glow", feature = "wgpu"))]
+            window_builder: None,
+
             #[cfg(feature = "glow")]
             shader_version: None,
 
@@ -537,6 +544,8 @@ impl Default for NativeOptions {
             wgpu_options: egui_wgpu::WgpuConfiguration::default(),
 
             app_id: None,
+
+            persist_window: true,
         }
     }
 }
@@ -574,6 +583,11 @@ pub struct WebOptions {
     /// Configures wgpu instance/device/adapter/surface creation and renderloop.
     #[cfg(feature = "wgpu")]
     pub wgpu_options: egui_wgpu::WgpuConfiguration,
+
+    /// The size limit of the web app canvas.
+    ///
+    /// By default the max size is [`egui::Vec2::INFINITY`], i.e. unlimited.
+    pub max_size_points: egui::Vec2,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -589,6 +603,8 @@ impl Default for WebOptions {
 
             #[cfg(feature = "wgpu")]
             wgpu_options: egui_wgpu::WgpuConfiguration::default(),
+
+            max_size_points: egui::Vec2::INFINITY,
         }
     }
 }
@@ -770,8 +786,8 @@ impl Frame {
     }
 
     /// Information about the integration.
-    pub fn info(&self) -> IntegrationInfo {
-        self.info.clone()
+    pub fn info(&self) -> &IntegrationInfo {
+        &self.info
     }
 
     /// A place where you can store custom data in a way that persists when you restart the app.
@@ -1166,12 +1182,14 @@ impl Storage for DummyStorage {
 /// Get and deserialize the [RON](https://github.com/ron-rs/ron) stored at the given key.
 #[cfg(feature = "ron")]
 pub fn get_value<T: serde::de::DeserializeOwned>(storage: &dyn Storage, key: &str) -> Option<T> {
+    crate::profile_function!(key);
     storage
         .get_string(key)
         .and_then(|value| match ron::from_str(&value) {
             Ok(value) => Some(value),
             Err(err) => {
-                log::warn!("Failed to decode RON: {err}");
+                // This happens on when we break the format, e.g. when updating egui.
+                log::debug!("Failed to decode RON: {err}");
                 None
             }
         })
@@ -1180,6 +1198,7 @@ pub fn get_value<T: serde::de::DeserializeOwned>(storage: &dyn Storage, key: &st
 /// Serialize the given value as [RON](https://github.com/ron-rs/ron) and store with the given key.
 #[cfg(feature = "ron")]
 pub fn set_value<T: serde::Serialize>(storage: &mut dyn Storage, key: &str, value: &T) {
+    crate::profile_function!(key);
     match ron::ser::to_string(value) {
         Ok(string) => storage.set_string(key, string),
         Err(err) => log::error!("eframe failed to encode data using ron: {}", err),
