@@ -149,6 +149,7 @@ impl InputState {
         mut new: RawInput,
         requested_repaint_last_frame: bool,
     ) -> InputState {
+        crate::profile_function!();
         let time = new.time.unwrap_or(self.time + new.predicted_dt as f64);
         let unstable_dt = (time - self.time) as f32;
 
@@ -460,6 +461,15 @@ impl InputState {
     pub fn num_accesskit_action_requests(&self, id: crate::Id, action: accesskit::Action) -> usize {
         self.accesskit_action_requests(id, action).count()
     }
+
+    /// Get all events that matches the given filter.
+    pub fn filtered_events(&self, filter: &EventFilter) -> Vec<Event> {
+        self.events
+            .iter()
+            .filter(|event| filter.matches(event))
+            .cloned()
+            .collect()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -754,7 +764,7 @@ impl PointerState {
     /// Latest reported pointer position.
     /// When tapping a touch screen, this will be `None`.
     #[inline(always)]
-    pub(crate) fn latest_pos(&self) -> Option<Pos2> {
+    pub fn latest_pos(&self) -> Option<Pos2> {
         self.latest_pos
     }
 

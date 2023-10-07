@@ -1,4 +1,4 @@
-// #![warn(missing_docs)]
+#![warn(missing_docs)] // Let's keep `Ui` well-documented.
 
 use std::hash::Hash;
 use std::sync::Arc;
@@ -249,11 +249,6 @@ impl Ui {
         self.painter.is_visible()
     }
 
-    #[deprecated = "Renamed is_visible"]
-    pub fn visible(&self) -> bool {
-        self.painter.is_visible()
-    }
-
     /// Calling `set_visible(false)` will cause all further widgets to be invisible,
     /// yet still allocate space.
     ///
@@ -281,6 +276,7 @@ impl Ui {
         }
     }
 
+    /// Read the [`Layout`].
     #[inline]
     pub fn layout(&self) -> &Layout {
         self.placer.layout()
@@ -611,6 +607,7 @@ impl Ui {
         Id::new(self.next_auto_id_source)
     }
 
+    /// Same as `ui.next_auto_id().with(id_source)`
     pub fn auto_id_with<IdSource>(&self, id_source: IdSource) -> Id
     where
         IdSource: Hash,
@@ -618,6 +615,7 @@ impl Ui {
         Id::new(self.next_auto_id_source).with(id_source)
     }
 
+    /// Pretend like `count` widgets have been allocated.
     pub fn skip_ahead_auto_ids(&mut self, count: usize) {
         self.next_auto_id_source = self.next_auto_id_source.wrapping_add(count as u64);
     }
@@ -740,43 +738,41 @@ impl Ui {
     /// # });
     /// ```
     pub fn allocate_space(&mut self, desired_size: Vec2) -> (Id, Rect) {
-        // For debug rendering
+        #[cfg(debug_assertions)]
         let original_available = self.available_size_before_wrap();
-        let too_wide = desired_size.x > original_available.x;
-        let too_high = desired_size.y > original_available.y;
 
         let rect = self.allocate_space_impl(desired_size);
 
-        if self.style().debug.debug_on_hover && self.rect_contains_pointer(rect) {
-            let painter = self.ctx().debug_painter();
-            painter.rect_stroke(rect, 4.0, (1.0, Color32::LIGHT_BLUE));
-            self.placer.debug_paint_cursor(&painter, "next");
-        }
+        #[cfg(debug_assertions)]
+        {
+            let too_wide = desired_size.x > original_available.x;
+            let too_high = desired_size.y > original_available.y;
 
-        let debug_expand_width = self.style().debug.show_expand_width;
-        let debug_expand_height = self.style().debug.show_expand_height;
+            let debug_expand_width = self.style().debug.show_expand_width;
+            let debug_expand_height = self.style().debug.show_expand_height;
 
-        if (debug_expand_width && too_wide) || (debug_expand_height && too_high) {
-            self.painter
-                .rect_stroke(rect, 0.0, (1.0, Color32::LIGHT_BLUE));
+            if (debug_expand_width && too_wide) || (debug_expand_height && too_high) {
+                self.painter
+                    .rect_stroke(rect, 0.0, (1.0, Color32::LIGHT_BLUE));
 
-            let stroke = Stroke::new(2.5, Color32::from_rgb(200, 0, 0));
-            let paint_line_seg = |a, b| self.painter().line_segment([a, b], stroke);
+                let stroke = Stroke::new(2.5, Color32::from_rgb(200, 0, 0));
+                let paint_line_seg = |a, b| self.painter().line_segment([a, b], stroke);
 
-            if debug_expand_width && too_wide {
-                paint_line_seg(rect.left_top(), rect.left_bottom());
-                paint_line_seg(rect.left_center(), rect.right_center());
-                paint_line_seg(
-                    pos2(rect.left() + original_available.x, rect.top()),
-                    pos2(rect.left() + original_available.x, rect.bottom()),
-                );
-                paint_line_seg(rect.right_top(), rect.right_bottom());
-            }
+                if debug_expand_width && too_wide {
+                    paint_line_seg(rect.left_top(), rect.left_bottom());
+                    paint_line_seg(rect.left_center(), rect.right_center());
+                    paint_line_seg(
+                        pos2(rect.left() + original_available.x, rect.top()),
+                        pos2(rect.left() + original_available.x, rect.bottom()),
+                    );
+                    paint_line_seg(rect.right_top(), rect.right_bottom());
+                }
 
-            if debug_expand_height && too_high {
-                paint_line_seg(rect.left_top(), rect.right_top());
-                paint_line_seg(rect.center_top(), rect.center_bottom());
-                paint_line_seg(rect.left_bottom(), rect.right_bottom());
+                if debug_expand_height && too_high {
+                    paint_line_seg(rect.left_top(), rect.right_top());
+                    paint_line_seg(rect.center_top(), rect.center_bottom());
+                    paint_line_seg(rect.left_bottom(), rect.right_bottom());
+                }
             }
         }
 
@@ -797,6 +793,8 @@ impl Ui {
         self.placer
             .advance_after_rects(frame_rect, widget_rect, item_spacing);
 
+        register_rect(self, widget_rect);
+
         widget_rect
     }
 
@@ -805,20 +803,16 @@ impl Ui {
     /// Ignore the layout of the [`Ui`]: just put my widget here!
     /// The layout cursor will advance to past this `rect`.
     pub fn allocate_rect(&mut self, rect: Rect, sense: Sense) -> Response {
+        register_rect(self, rect);
         let id = self.advance_cursor_after_rect(rect);
         self.interact(rect, id, sense)
     }
 
-    pub(crate) fn advance_cursor_after_rect(&mut self, rect: Rect) -> Id {
+    /// Allocate a rect without interacting with it.
+    pub fn advance_cursor_after_rect(&mut self, rect: Rect) -> Id {
         egui_assert!(!rect.any_nan());
         let item_spacing = self.spacing().item_spacing;
         self.placer.advance_after_rects(rect, rect, item_spacing);
-
-        if self.style().debug.debug_on_hover && self.rect_contains_pointer(rect) {
-            let painter = self.ctx().debug_painter();
-            painter.rect_stroke(rect, 4.0, (1.0, Color32::LIGHT_BLUE));
-            self.placer.debug_paint_cursor(&painter, "next");
-        }
 
         let id = Id::new(self.next_auto_id_source);
         self.next_auto_id_source = self.next_auto_id_source.wrapping_add(1);
@@ -896,13 +890,6 @@ impl Ui {
 
         self.placer
             .advance_after_rects(final_child_rect, final_child_rect, item_spacing);
-
-        if self.style().debug.debug_on_hover && self.rect_contains_pointer(final_child_rect) {
-            let painter = self.ctx().debug_painter();
-            painter.rect_stroke(frame_rect, 4.0, (1.0, Color32::LIGHT_BLUE));
-            painter.rect_stroke(final_child_rect, 4.0, (1.0, Color32::LIGHT_BLUE));
-            self.placer.debug_paint_cursor(&painter, "next");
-        }
 
         let response = self.interact(final_child_rect, child_ui.id, Sense::hover());
         InnerResponse::new(ret, response)
@@ -1559,37 +1546,35 @@ impl Ui {
         response
     }
 
-    /// Show an image here with the given size.
+    /// Show an image available at the given `uri`.
     ///
-    /// In order to display an image you must first acquire a [`TextureHandle`].
-    /// This is best done with [`egui_extras::RetainedImage`](https://docs.rs/egui_extras/latest/egui_extras/image/struct.RetainedImage.html) or [`Context::load_texture`].
+    /// ⚠ This will do nothing unless you install some image loaders first!
+    /// The easiest way to do this is via [`egui_extras::install_image_loaders`](https://docs.rs/egui_extras/latest/egui_extras/fn.install_image_loaders.html).
+    ///
+    /// The loaders handle caching image data, sampled textures, etc. across frames, so calling this is immediate-mode safe.
     ///
     /// ```
-    /// struct MyImage {
-    ///     texture: Option<egui::TextureHandle>,
-    /// }
-    ///
-    /// impl MyImage {
-    ///     fn ui(&mut self, ui: &mut egui::Ui) {
-    ///         let texture: &egui::TextureHandle = self.texture.get_or_insert_with(|| {
-    ///             // Load the texture only once.
-    ///             ui.ctx().load_texture(
-    ///                 "my-image",
-    ///                 egui::ColorImage::example(),
-    ///                 Default::default()
-    ///             )
-    ///         });
-    ///
-    ///         // Show the image:
-    ///         ui.image(texture, texture.size_vec2());
-    ///     }
-    /// }
+    /// # egui::__run_test_ui(|ui| {
+    /// ui.image("https://picsum.photos/480");
+    /// ui.image("file://assets/ferris.png");
+    /// ui.image(egui::include_image!("../assets/ferris.png"));
+    /// ui.add(
+    ///     egui::Image::new(egui::include_image!("../assets/ferris.png"))
+    ///         .max_width(200.0)
+    ///         .rounding(10.0),
+    /// );
+    /// # });
     /// ```
     ///
-    /// See also [`crate::Image`] and [`crate::ImageButton`].
+    /// Using [`include_image`] is often the most ergonomic, and the path
+    /// will be resolved at compile-time and embedded in the binary.
+    /// When using a "file://" url on the other hand, you need to make sure
+    /// the files can be found in the right spot at runtime!
+    ///
+    /// See also [`crate::Image`], [`crate::ImageSource`].
     #[inline]
-    pub fn image(&mut self, texture_id: impl Into<TextureId>, size: impl Into<Vec2>) -> Response {
-        Image::new(texture_id, size).ui(self)
+    pub fn image<'a>(&mut self, source: impl Into<ImageSource<'a>>) -> Response {
+        Image::new(source).ui(self)
     }
 }
 
@@ -1692,7 +1677,7 @@ impl Ui {
     /// # });
     /// ```
     ///
-    /// Se also [`Self::scope`].
+    /// See also [`Self::scope`].
     pub fn group<R>(&mut self, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
         crate::Frame::group(self.style()).show(self, add_contents)
     }
@@ -1797,10 +1782,7 @@ impl Ui {
         let mut child_rect = self.placer.available_rect_before_wrap();
         child_rect.min.x += indent;
 
-        let mut child_ui = Self {
-            id: self.id.with(id_source),
-            ..self.child_ui(child_rect, *self.layout())
-        };
+        let mut child_ui = self.child_ui_with_id_source(child_rect, *self.layout(), id_source);
         let ret = add_contents(&mut child_ui);
 
         let left_vline = self.visuals().indent_has_left_vline;
@@ -2028,18 +2010,7 @@ impl Ui {
         let item_spacing = self.spacing().item_spacing;
         self.placer.advance_after_rects(rect, rect, item_spacing);
 
-        if self.style().debug.debug_on_hover && self.rect_contains_pointer(rect) {
-            let painter = self.ctx().debug_painter();
-            painter.rect_stroke(rect, 4.0, (1.0, Color32::LIGHT_BLUE));
-            self.placer.debug_paint_cursor(&painter, "next");
-        }
-
         InnerResponse::new(inner, self.interact(rect, child_ui.id, Sense::hover()))
-    }
-
-    #[deprecated = "Use ui.vertical_centered or ui.centered_and_justified"]
-    pub fn centered<R>(&mut self, add_contents: impl FnOnce(&mut Self) -> R) -> InnerResponse<R> {
-        self.vertical_centered(add_contents)
     }
 
     /// This will make the next added widget centered and justified in the available space.
@@ -2193,15 +2164,9 @@ impl Ui {
     /// If called from within a menu this will instead create a button for a sub-menu.
     ///
     /// ```ignore
-    /// use egui_extras;
+    /// let img = egui::include_image!("../assets/ferris.png");
     ///
-    /// let img = egui_extras::RetainedImage::from_svg_bytes_with_size(
-    ///     "rss",
-    ///     include_bytes!("rss.svg"),
-    ///     egui_extras::image::FitTo::Size(24, 24),
-    /// );
-    ///
-    /// ui.menu_image_button(img.texture_id(ctx), img.size_vec2(), |ui| {
+    /// ui.menu_image_button(img, |ui| {
     ///     ui.menu_button("My sub-menu", |ui| {
     ///         if ui.button("Close the menu").clicked() {
     ///             ui.close_menu();
@@ -2212,16 +2177,15 @@ impl Ui {
     ///
     /// See also: [`Self::close_menu`] and [`Response::context_menu`].
     #[inline]
-    pub fn menu_image_button<R>(
+    pub fn menu_image_button<'a, R>(
         &mut self,
-        texture_id: TextureId,
-        image_size: impl Into<Vec2>,
+        image: impl Into<Image<'a>>,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> InnerResponse<Option<R>> {
         if let Some(menu_state) = self.menu_state.clone() {
             menu::submenu_button(self, menu_state, String::new(), add_contents)
         } else {
-            menu::menu_image_button(self, texture_id, image_size, add_contents)
+            menu::menu_image_button(self, ImageButton::new(image), add_contents)
         }
     }
 }
@@ -2231,20 +2195,120 @@ impl Ui {
 /// # Debug stuff
 impl Ui {
     /// Shows where the next widget is going to be placed
+    #[cfg(debug_assertions)]
     pub fn debug_paint_cursor(&self) {
         self.placer.debug_paint_cursor(&self.painter, "next");
     }
+}
 
-    /// Shows the given text where the next widget is to be placed
-    /// if when [`Context::set_debug_on_hover`] has been turned on and the mouse is hovering the Ui.
-    pub fn trace_location(&self, text: impl ToString) {
-        let rect = self.max_rect();
-        if self.style().debug.debug_on_hover && self.rect_contains_pointer(rect) {
-            self.placer
-                .debug_paint_cursor(&self.ctx().debug_painter(), text);
+#[cfg(debug_assertions)]
+impl Drop for Ui {
+    fn drop(&mut self) {
+        register_rect(self, self.min_rect());
+    }
+}
+
+/// Show this rectangle to the user if certain debug options are set.
+#[cfg(debug_assertions)]
+fn register_rect(ui: &Ui, rect: Rect) {
+    let debug = ui.style().debug;
+
+    let show_callstacks = debug.debug_on_hover
+        || debug.debug_on_hover_with_all_modifiers && ui.input(|i| i.modifiers.all());
+
+    if !show_callstacks {
+        return;
+    }
+
+    if ui.ctx().frame_state(|o| o.has_debug_viewed_this_frame) {
+        return;
+    }
+
+    if !ui.rect_contains_pointer(rect) {
+        return;
+    }
+
+    // We only show one debug rectangle, or things get confusing:
+    ui.ctx()
+        .frame_state_mut(|o| o.has_debug_viewed_this_frame = true);
+
+    // ----------------------------------------------
+
+    let is_clicking = ui.input(|i| i.pointer.could_any_button_be_click());
+
+    // Use the debug-painter to avoid clip rect,
+    // otherwise the content of the widget may cover what we paint here!
+    let painter = ui.ctx().debug_painter();
+
+    // Paint rectangle around widget:
+    {
+        let rect_fg_color = if is_clicking {
+            Color32::WHITE
+        } else {
+            Color32::LIGHT_BLUE
+        };
+        let rect_bg_color = Color32::BLUE.gamma_multiply(0.5);
+
+        painter.rect(rect, 0.0, rect_bg_color, (1.0, rect_fg_color));
+    }
+
+    // ----------------------------------------------
+
+    if debug.hover_shows_next {
+        ui.placer.debug_paint_cursor(&painter, "next");
+    }
+
+    // ----------------------------------------------
+
+    #[cfg(feature = "callstack")]
+    let callstack = crate::callstack::capture();
+
+    #[cfg(not(feature = "callstack"))]
+    let callstack = String::default();
+
+    if !callstack.is_empty() {
+        let font_id = FontId::monospace(12.0);
+        let text = format!("{callstack}\n\n(click to copy)");
+        let galley = painter.layout_no_wrap(text, font_id, Color32::WHITE);
+
+        // Position the text either under or above:
+        let screen_rect = ui.ctx().screen_rect();
+        let y = if galley.size().y <= rect.top() {
+            // Above
+            rect.top() - galley.size().y
+        } else {
+            // Below
+            rect.bottom()
+        };
+
+        let y = y
+            .at_most(screen_rect.bottom() - galley.size().y)
+            .at_least(0.0);
+
+        let x = rect
+            .left()
+            .at_most(screen_rect.right() - galley.size().x)
+            .at_least(0.0);
+        let text_pos = pos2(x, y);
+
+        let text_bg_color = Color32::from_black_alpha(180);
+        let text_rect_stroke_color = if is_clicking {
+            Color32::WHITE
+        } else {
+            text_bg_color
+        };
+        let text_rect = Rect::from_min_size(text_pos, galley.size());
+        painter.rect(text_rect, 0.0, text_bg_color, (1.0, text_rect_stroke_color));
+        painter.galley(text_pos, galley);
+
+        if ui.input(|i| i.pointer.any_click()) {
+            ui.ctx().copy_text(callstack);
         }
     }
 }
+
+#[cfg(not(debug_assertions))]
+fn register_rect(_ui: &Ui, _rect: Rect) {}
 
 #[test]
 fn ui_impl_send_sync() {

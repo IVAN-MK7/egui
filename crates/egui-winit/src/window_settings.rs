@@ -116,7 +116,9 @@ impl WindowSettings {
             return;
         }
 
-        let Some(inner_size_points) = self.inner_size_points else { return; };
+        let Some(inner_size_points) = self.inner_size_points else {
+            return;
+        };
 
         if let Some(pos_px) = &mut self.inner_position_pixels {
             clamp_pos_to_monitors(event_loop, inner_size_points, pos_px);
@@ -135,12 +137,10 @@ fn clamp_pos_to_monitors<E>(
     let monitors = event_loop.available_monitors();
 
     // default to primary monitor, in case the correct monitor was disconnected.
-    let mut active_monitor = if let Some(active_monitor) = event_loop
+    let Some(mut active_monitor) = event_loop
         .primary_monitor()
         .or_else(|| event_loop.available_monitors().next())
-    {
-        active_monitor
-    } else {
+    else {
         return; // no monitors 🤷
     };
 

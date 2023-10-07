@@ -1,5 +1,6 @@
-use egui::{Context, Modifiers, ScrollArea, Ui};
 use std::collections::BTreeSet;
+
+use egui::{Context, Modifiers, NumExt as _, ScrollArea, Ui};
 
 use super::About;
 use super::Demo;
@@ -35,7 +36,8 @@ impl Default for Demos {
             Box::<super::sliders::Sliders>::default(),
             Box::<super::strip_demo::StripDemo>::default(),
             Box::<super::table_demo::TableDemo>::default(),
-            Box::<super::text_edit::TextEdit>::default(),
+            Box::<super::text_edit::TextEditDemo>::default(),
+            Box::<super::text_layout::TextLayoutDemo>::default(),
             Box::<super::widget_gallery::WidgetGallery>::default(),
             Box::<super::window_options::WindowOptions>::default(),
             Box::<super::tests::WindowResizeTest>::default(),
@@ -179,7 +181,7 @@ impl DemoWindows {
     fn mobile_ui(&mut self, ctx: &Context) {
         if self.about_is_open {
             let screen_size = ctx.input(|i| i.screen_rect.size());
-            let default_width = (screen_size.x - 20.0).min(400.0);
+            let default_width = (screen_size.x - 32.0).at_most(400.0);
 
             let mut close = false;
             egui::Window::new(self.about.name())
@@ -242,7 +244,6 @@ impl DemoWindows {
             .resizable(false)
             .default_width(150.0)
             .show(ctx, |ui| {
-                egui::trace!(ui);
                 ui.vertical_centered(|ui| {
                     ui.heading("✒ egui demos");
                 });

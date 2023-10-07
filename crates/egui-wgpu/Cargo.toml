@@ -1,6 +1,6 @@
 [package]
 name = "egui-wgpu"
-version = "0.22.0"
+version = "0.23.0"
 description = "Bindings for using egui natively using the wgpu library"
 authors = [
   "Nils Hasenbanck <nils@hasenbanck.de>",
@@ -8,7 +8,7 @@ authors = [
   "Emil Ernerfeldt <emil.ernerfeldt@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.67"
+rust-version = "1.70"
 homepage = "https://github.com/emilk/egui/tree/master/crates/egui-wgpu"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -36,7 +36,7 @@ winit = ["dep:winit"]
 
 
 [dependencies]
-epaint = { version = "0.22.0", path = "../epaint", default-features = false, features = [
+epaint = { version = "0.23.0", path = "../epaint", default-features = false, features = [
   "bytemuck",
 ] }
 

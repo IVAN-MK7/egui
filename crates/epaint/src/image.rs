@@ -1,4 +1,5 @@
 use crate::{textures::TextureOptions, Color32};
+use std::sync::Arc;
 
 /// An image stored in RAM.
 ///
@@ -11,7 +12,7 @@ use crate::{textures::TextureOptions, Color32};
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ImageData {
     /// RGBA image.
-    Color(ColorImage),
+    Color(Arc<ColorImage>),
 
     /// Used for the font texture.
     Font(FontImage),
@@ -226,6 +227,13 @@ impl std::ops::IndexMut<(usize, usize)> for ColorImage {
 impl From<ColorImage> for ImageData {
     #[inline(always)]
     fn from(image: ColorImage) -> Self {
+        Self::Color(Arc::new(image))
+    }
+}
+
+impl From<Arc<ColorImage>> for ImageData {
+    #[inline]
+    fn from(image: Arc<ColorImage>) -> Self {
         Self::Color(image)
     }
 }
@@ -272,6 +280,7 @@ impl FontImage {
     /// `gamma` should normally be set to `None`.
     ///
     /// If you are having problems with text looking skinny and pixelated, try using a low gamma, e.g. `0.4`.
+    #[inline]
     pub fn srgba_pixels(
         &'_ self,
         gamma: Option<f32>,
@@ -330,6 +339,7 @@ impl From<FontImage> for ImageData {
     }
 }
 
+#[inline]
 fn fast_round(r: f32) -> u8 {
     (r + 0.5).floor() as _ // rust does a saturating cast since 1.45
 }
