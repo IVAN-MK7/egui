@@ -33,87 +33,74 @@ impl super::View for StripDemo {
             egui::lerp(Rgba::from(color)..=Rgba::from(faded_color), t).into()
         };
 
-        StripBuilder::new(ui)
-            .size(Size::exact(50.0))
-            .size(Size::remainder())
-            .size(Size::relative(0.5).at_least(60.0))
-            .size(Size::exact(10.5))
-            .vertical(|mut strip| {
-                strip.cell(|ui| {
-                    ui.painter().rect_filled(
-                        ui.available_rect_before_wrap(),
-                        0.0,
-                        faded_color(Color32::BLUE),
-                    );
-                    ui.label("width: 100%\nheight: 50px");
-                });
-                strip.strip(|builder| {
-                    builder.sizes(Size::remainder(), 2).horizontal(|mut strip| {
-                        strip.cell(|ui| {
-                            ui.painter().rect_filled(
-                                ui.available_rect_before_wrap(),
-                                0.0,
-                                faded_color(Color32::RED),
-                            );
-                            ui.label("width: 50%\nheight: remaining");
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                StripBuilder::new(ui)
+                    .size(Size::relative(0.7))
+                    .size(Size::remainder())
+                    .horizontal(|mut strip| {
+                        strip.strip(|builder| {
+                            builder
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .vertical(|mut strip| {
+                                    strip.cell(|ui| {
+                                        ui.label("strip_label_1");
+                                    });
+                                    strip.cell(|ui| {
+                                        ui.label("strip_label_2");
+                                    });
+                                    strip.cell(|ui| {
+                                        ui.label("strip_label_3");
+                                    });
+                                    strip.cell(|ui| {
+                                        ui.label("strip_label_4");
+                                    });
+                                });
                         });
                         strip.strip(|builder| {
-                            builder.sizes(Size::remainder(), 3).vertical(|mut strip| {
-                                strip.empty();
-                                strip.cell(|ui| {
-                                    ui.painter().rect_filled(
-                                        ui.available_rect_before_wrap(),
-                                        0.0,
-                                        faded_color(Color32::YELLOW),
-                                    );
-                                    ui.label("width: 50%\nheight: 1/3 of the red region");
-                                });
-                                strip.empty();
-                            });
-                        });
-                    });
-                });
-                strip.strip(|builder| {
-                    builder
-                        .size(Size::remainder())
-                        .size(Size::exact(120.0))
-                        .size(Size::remainder())
-                        .size(Size::exact(70.0))
-                        .horizontal(|mut strip| {
-                            strip.empty();
-                            strip.strip(|builder| {
-                                builder
-                                    .size(Size::remainder())
-                                    .size(Size::exact(60.0))
-                                    .size(Size::remainder())
-                                    .vertical(|mut strip| {
-                                        strip.empty();
-                                        strip.cell(|ui| {
-                                            ui.painter().rect_filled(
-                                                ui.available_rect_before_wrap(),
-                                                0.0,
-                                                faded_color(Color32::GOLD),
-                                            );
-                                            ui.label("width: 120px\nheight: 60px");
+                            builder
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .size(Size::exact(20.))
+                                .vertical(|mut strip| {
+                                    strip.cell(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("strip_label_1_1");
+                                            ui.label("strip_label_1_2");
                                         });
                                     });
-                            });
-                            strip.empty();
-                            strip.cell(|ui| {
-                                ui.painter().rect_filled(
-                                    ui.available_rect_before_wrap(),
-                                    0.0,
-                                    faded_color(Color32::GREEN),
-                                );
-                                ui.label("width: 70px\n\nheight: 50%, but at least 60px.");
-                            });
+                                    strip.cell(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("strip_label_2_1");
+                                            ui.label("strip_label_2_2");
+                                        });
+                                    });
+                                    strip.cell(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("strip_label_3_1");
+                                            ui.label("strip_label_3_2");
+                                        });
+                                    });
+                                    strip.cell(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("strip_label_4_1");
+                                        });
+                                    });
+                                });
                         });
-                });
-                strip.cell(|ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add(crate::egui_github_link_file!());
                     });
-                });
             });
+            ui.vertical_centered(
+                |ui| if ui.button("centered_button_must_not_overlap").clicked() {},
+            );
+            ui.label("label_must_not_overlap_1");
+            ui.label("label_must_not_overlap_2");
+            ui.label("label_must_not_overlap_3");
+            ui.label("label_must_not_overlap_4");
+        });
     }
 }

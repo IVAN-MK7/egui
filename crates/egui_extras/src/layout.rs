@@ -144,8 +144,8 @@ impl<'l> StripLayout<'l> {
                 self.ui.visuals().widgets.hovered.bg_fill,
             );
         }
-
-        let response = self.ui.allocate_rect(max_rect, self.sense);
+        // 5a6d1cb's breaking_change.
+        // let response = self.ui.allocate_rect(max_rect, self.sense);
         let used_rect = self.cell(flags, max_rect, add_cell_contents);
 
         self.set_pos(max_rect);
@@ -156,7 +156,10 @@ impl<'l> StripLayout<'l> {
             max_rect.union(used_rect)
         };
 
-        let response = response.with_new_rect(allocation_rect);
+        // 37762f7 's working_version.
+        let response = self.ui.allocate_rect(allocation_rect, self.sense);
+        // 5a6d1cb's breaking_change.
+        // let response = response.with_new_rect(allocation_rect);
 
         (used_rect, response)
     }
