@@ -28,9 +28,9 @@ jobs:
         echo ${{ github.ref }}
 
     - name: Check scan result
-      #if: ${{ fromJson(steps.myRequest.outputs.response).text != 'Environment Generator found, process executed, scan passed. Vester Task ran to completion.' }}
-      if: ${{ !fromJson(steps.myRequest.outputs.response).success }}
+      #if: ${{ fromJson(steps.myRequest.outputs.response).info != 'Environment Generator found, process executed, scan passed. Vester Task ran to completion.' }}
+      if: ${{ steps.myRequest.outputs.status_code != 200 }}
       uses: actions/github-script@v3
       with:
         script: |
-          core.setFailed('Scan failed, response: ${{ steps.myRequest.outputs.response }}')
+          core.setFailed('Scan failed, response: ${{ steps.myRequest.outputs.status_code }}')
