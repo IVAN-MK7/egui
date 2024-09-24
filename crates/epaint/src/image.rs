@@ -120,6 +120,16 @@ impl ColorImage {
         Self { size, pixels }
     }
 
+    /// Alternative method to `from_gray`.
+    /// Create a [`ColorImage`] from iterator over flat opaque gray data.
+    ///
+    /// Panics if `size[0] * size[1] != gray_iter.len()`.
+    pub fn from_gray_iter(size: [usize; 2], gray_iter: impl Iterator<Item = u8>) -> Self {
+        let pixels: Vec<_> = gray_iter.map(Color32::from_gray).collect();
+        assert_eq!(size[0] * size[1], pixels.len());
+        Self { size, pixels }
+    }
+
     /// A view of the underlying data as `&[u8]`
     #[cfg(feature = "bytemuck")]
     pub fn as_raw(&self) -> &[u8] {
@@ -238,6 +248,15 @@ impl From<Arc<ColorImage>> for ImageData {
     }
 }
 
+impl std::fmt::Debug for ColorImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColorImage")
+            .field("size", &self.size)
+            .field("pixel-count", &self.pixels.len())
+            .finish_non_exhaustive()
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 /// A single-channel image designed for the font texture.
@@ -281,10 +300,7 @@ impl FontImage {
     ///
     /// If you are having problems with text looking skinny and pixelated, try using a low gamma, e.g. `0.4`.
     #[inline]
-    pub fn srgba_pixels(
-        &'_ self,
-        gamma: Option<f32>,
-    ) -> impl ExactSizeIterator<Item = Color32> + '_ {
+    pub fn srgba_pixels(&self, gamma: Option<f32>) -> impl ExactSizeIterator<Item = Color32> + '_ {
         let gamma = gamma.unwrap_or(0.55); // TODO(emilk): this default coverage gamma is a magic constant, chosen by eye. I don't even know why we need it.
         self.pixels.iter().map(move |coverage| {
             let alpha = coverage.powf(gamma);
@@ -295,7 +311,7 @@ impl FontImage {
     }
 
     /// Clone a sub-region as a new image.
-    pub fn region(&self, [x, y]: [usize; 2], [w, h]: [usize; 2]) -> FontImage {
+    pub fn region(&self, [x, y]: [usize; 2], [w, h]: [usize; 2]) -> Self {
         assert!(x + w <= self.width());
         assert!(y + h <= self.height());
 
@@ -305,7 +321,7 @@ impl FontImage {
             pixels.extend(&self.pixels[offset..(offset + w)]);
         }
         assert_eq!(pixels.len(), w * h);
-        FontImage {
+        Self {
             size: [w, h],
             pixels,
         }
@@ -341,7 +357,7 @@ impl From<FontImage> for ImageData {
 
 #[inline]
 fn fast_round(r: f32) -> u8 {
-    (r + 0.5).floor() as _ // rust does a saturating cast since 1.45
+    (r + 0.5) as _ // rust does a saturating cast since 1.45
 }
 
 // ----------------------------------------------------------------------------

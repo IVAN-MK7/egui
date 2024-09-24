@@ -3,7 +3,7 @@
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct About {}
 
-impl super::Demo for About {
+impl crate::Demo for About {
     fn name(&self) -> &'static str {
         "About egui"
     }
@@ -13,14 +13,15 @@ impl super::Demo for About {
             .default_width(320.0)
             .default_height(480.0)
             .open(open)
+            .resizable([true, false])
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for About {
+impl crate::View for About {
     fn ui(&mut self, ui: &mut egui::Ui) {
         use egui::special_emojis::{OS_APPLE, OS_LINUX, OS_WINDOWS};
 
@@ -49,7 +50,13 @@ impl super::View for About {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.label("egui development is sponsored by ");
             ui.hyperlink_to("Rerun.io", "https://www.rerun.io/");
-            ui.label(", a startup building an SDK for visualizing streams of multimodal data");
+            ui.label(", a startup building an SDK for visualizing streams of multimodal data.");
+        });
+
+        ui.add_space(12.0);
+
+        ui.vertical_centered(|ui| {
+            ui.add(crate::egui_github_link_file!());
         });
     }
 }

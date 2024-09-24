@@ -3,15 +3,15 @@
 
 use std::ops::Range;
 
-use crate::{shape::Shape, Color32, PathShape, Stroke};
-use emath::*;
+use crate::{shape::Shape, Color32, PathShape, PathStroke};
+use emath::{Pos2, Rect, RectTransform};
 
 // ----------------------------------------------------------------------------
 
 /// A cubic [Bézier Curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve).
 ///
 /// See also [`QuadraticBezierShape`].
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct CubicBezierShape {
     /// The first point is the starting point and the last one is the ending point of the curve.
@@ -20,7 +20,7 @@ pub struct CubicBezierShape {
     pub closed: bool,
 
     pub fill: Color32,
-    pub stroke: Stroke,
+    pub stroke: PathStroke,
 }
 
 impl CubicBezierShape {
@@ -32,7 +32,7 @@ impl CubicBezierShape {
         points: [Pos2; 4],
         closed: bool,
         fill: Color32,
-        stroke: impl Into<Stroke>,
+        stroke: impl Into<PathStroke>,
     ) -> Self {
         Self {
             points,
@@ -48,11 +48,11 @@ impl CubicBezierShape {
         for (i, origin_point) in self.points.iter().enumerate() {
             points[i] = transform * *origin_point;
         }
-        CubicBezierShape {
+        Self {
             points,
             closed: self.closed,
             fill: self.fill,
-            stroke: self.stroke,
+            stroke: self.stroke.clone(),
         }
     }
 
@@ -69,7 +69,7 @@ impl CubicBezierShape {
                 points,
                 closed: self.closed,
                 fill: self.fill,
-                stroke: self.stroke,
+                stroke: self.stroke.clone(),
             };
             pathshapes.push(pathshape);
         }
@@ -141,8 +141,8 @@ impl CubicBezierShape {
 
     /// split the original cubic curve into a new one within a range.
     pub fn split_range(&self, t_range: Range<f32>) -> Self {
-        crate::epaint_assert!(
-            t_range.start >= 0.0 && t_range.end <= 1.0 && t_range.start <= t_range.end,
+        debug_assert!(
+            0.0 <= t_range.start && t_range.end <= 1.0 && t_range.start <= t_range.end,
             "range should be in [0.0,1.0]"
         );
 
@@ -156,18 +156,19 @@ impl CubicBezierShape {
             points: [d_from, d_ctrl, d_to],
             closed: self.closed,
             fill: self.fill,
-            stroke: self.stroke,
+            stroke: self.stroke.clone(),
         };
         let delta_t = t_range.end - t_range.start;
         let q_start = q.sample(t_range.start);
         let q_end = q.sample(t_range.end);
         let ctrl1 = from + q_start.to_vec2() * delta_t;
         let ctrl2 = to - q_end.to_vec2() * delta_t;
-        CubicBezierShape {
+
+        Self {
             points: [from, ctrl1, ctrl2, to],
             closed: self.closed,
             fill: self.fill,
-            stroke: self.stroke,
+            stroke: self.stroke.clone(),
         }
     }
 
@@ -177,7 +178,7 @@ impl CubicBezierShape {
     // https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#section.10.6
     // and the error metric from the caffein owl blog post http://caffeineowl.com/graphics/2d/vectorial/cubic2quad01.html
     pub fn num_quadratics(&self, tolerance: f32) -> u32 {
-        crate::epaint_assert!(tolerance > 0.0, "the tolerance should be positive");
+        debug_assert!(tolerance > 0.0, "the tolerance should be positive");
 
         let x =
             self.points[0].x - 3.0 * self.points[1].x + 3.0 * self.points[2].x - self.points[3].x;
@@ -272,7 +273,7 @@ impl CubicBezierShape {
     /// [Bézier Curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve#Cubic_B.C3.A9zier_curves)
     ///
     pub fn sample(&self, t: f32) -> Pos2 {
-        crate::epaint_assert!(
+        debug_assert!(
             t >= 0.0 && t <= 1.0,
             "the sample value should be in [0.0,1.0]"
         );
@@ -374,7 +375,7 @@ impl From<CubicBezierShape> for Shape {
 /// A quadratic [Bézier Curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve).
 ///
 /// See also [`CubicBezierShape`].
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct QuadraticBezierShape {
     /// The first point is the starting point and the last one is the ending point of the curve.
@@ -383,7 +384,7 @@ pub struct QuadraticBezierShape {
     pub closed: bool,
 
     pub fill: Color32,
-    pub stroke: Stroke,
+    pub stroke: PathStroke,
 }
 
 impl QuadraticBezierShape {
@@ -396,9 +397,9 @@ impl QuadraticBezierShape {
         points: [Pos2; 3],
         closed: bool,
         fill: Color32,
-        stroke: impl Into<Stroke>,
+        stroke: impl Into<PathStroke>,
     ) -> Self {
-        QuadraticBezierShape {
+        Self {
             points,
             closed,
             fill,
@@ -412,11 +413,11 @@ impl QuadraticBezierShape {
         for (i, origin_point) in self.points.iter().enumerate() {
             points[i] = transform * *origin_point;
         }
-        QuadraticBezierShape {
+        Self {
             points,
             closed: self.closed,
             fill: self.fill,
-            stroke: self.stroke,
+            stroke: self.stroke.clone(),
         }
     }
 
@@ -428,7 +429,7 @@ impl QuadraticBezierShape {
             points,
             closed: self.closed,
             fill: self.fill,
-            stroke: self.stroke,
+            stroke: self.stroke.clone(),
         }
     }
 
@@ -495,7 +496,7 @@ impl QuadraticBezierShape {
     /// [Bézier Curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve#Quadratic_B.C3.A9zier_curves)
     ///
     pub fn sample(&self, t: f32) -> Pos2 {
-        crate::epaint_assert!(
+        debug_assert!(
             t >= 0.0 && t <= 1.0,
             "the sample value should be in [0.0,1.0]"
         );
@@ -644,7 +645,7 @@ impl FlatteningParameters {
 
         let integral_step = integral_diff / count;
 
-        FlatteningParameters {
+        Self {
             count,
             integral_from,
             integral_step,
@@ -687,7 +688,7 @@ fn single_curve_approximation(curve: &CubicBezierShape) -> QuadraticBezierShape 
         points: [curve.points[0], c, curve.points[3]],
         closed: curve.closed,
         fill: curve.fill,
-        stroke: curve.stroke,
+        stroke: curve.stroke.clone(),
     }
 }
 
@@ -712,7 +713,7 @@ fn quadratic_for_each_local_extremum<F: FnMut(f32)>(p0: f32, p1: f32, p2: f32, c
 
 fn cubic_for_each_local_extremum<F: FnMut(f32)>(p0: f32, p1: f32, p2: f32, p3: f32, cb: &mut F) {
     // See www.faculty.idc.ac.il/arik/quality/appendixa.html for an explanation
-    // A cubic Bézier curve can be derivated by the following equation:
+    // A cubic Bézier curve can be derived by the following equation:
     // B'(t) = 3(1-t)^2(p1-p0) + 6(1-t)t(p2-p1) + 3t^2(p3-p2) or
     // f(x) = a * x² + b * x + c
     let a = 3.0 * (p3 + 3.0 * (p1 - p2) - p0);
@@ -761,6 +762,8 @@ fn cubic_for_each_local_extremum<F: FnMut(f32)>(p0: f32, p1: f32, p2: f32, p3: f
 
 #[cfg(test)]
 mod tests {
+    use emath::pos2;
+
     use super::*;
 
     #[test]

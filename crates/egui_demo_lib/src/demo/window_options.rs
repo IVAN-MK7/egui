@@ -1,3 +1,5 @@
+use egui::Vec2b;
+
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct WindowOptions {
@@ -7,7 +9,7 @@ pub struct WindowOptions {
     collapsible: bool,
     resizable: bool,
     constrain: bool,
-    scroll2: [bool; 2],
+    scroll2: Vec2b,
     disabled_time: f64,
 
     anchored: bool,
@@ -24,7 +26,7 @@ impl Default for WindowOptions {
             collapsible: true,
             resizable: true,
             constrain: true,
-            scroll2: [true; 2],
+            scroll2: Vec2b::TRUE,
             disabled_time: f64::NEG_INFINITY,
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
@@ -33,7 +35,7 @@ impl Default for WindowOptions {
     }
 }
 
-impl super::Demo for WindowOptions {
+impl crate::Demo for WindowOptions {
     fn name(&self) -> &'static str {
         "🗖 Window Options"
     }
@@ -58,14 +60,14 @@ impl super::Demo for WindowOptions {
             ctx.request_repaint();
         }
 
-        use super::View as _;
+        use crate::View as _;
         let mut window = egui::Window::new(title)
             .id(egui::Id::new("demo_window_options")) // required since we change the title
             .resizable(resizable)
             .constrain(constrain)
             .collapsible(collapsible)
             .title_bar(title_bar)
-            .scroll2(scroll2)
+            .scroll(scroll2)
             .enabled(enabled);
         if closable {
             window = window.open(open);
@@ -77,7 +79,7 @@ impl super::Demo for WindowOptions {
     }
 }
 
-impl super::View for WindowOptions {
+impl crate::View for WindowOptions {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let Self {
             title,
@@ -113,7 +115,9 @@ impl super::View for WindowOptions {
             ui.group(|ui| {
                 ui.vertical(|ui| {
                     ui.checkbox(anchored, "anchored");
-                    ui.set_enabled(*anchored);
+                    if !*anchored {
+                        ui.disable();
+                    }
                     ui.horizontal(|ui| {
                         ui.label("x:");
                         ui.selectable_value(&mut anchor[0], egui::Align::LEFT, "Left");
@@ -136,12 +140,15 @@ impl super::View for WindowOptions {
         });
 
         ui.separator();
+        let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
+        ui.label(format!("This window is on top: {on_top}."));
 
+        ui.separator();
         ui.horizontal(|ui| {
             if ui.button("Disable for 2 seconds").clicked() {
                 self.disabled_time = ui.input(|i| i.time);
             }
-            egui::reset_button(ui, self);
+            egui::reset_button(ui, self, "Reset");
             ui.add(crate::egui_github_link_file!());
         });
     }

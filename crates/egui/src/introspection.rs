@@ -1,5 +1,8 @@
 //! Showing UI:s for egui/epaint types.
-use crate::*;
+use crate::{
+    epaint, memory, pos2, remap_clamp, vec2, Color32, CursorIcon, FontFamily, FontId, Label, Mesh,
+    NumExt, Rect, Response, Sense, Shape, Slider, TextStyle, TextWrapMode, Ui, Widget,
+};
 
 pub fn font_family_ui(ui: &mut Ui, font_family: &mut FontFamily) {
     let families = ui.fonts(|f| f.families());
@@ -129,7 +132,7 @@ impl Widget for &epaint::stats::PaintStats {
 }
 
 fn label(ui: &mut Ui, alloc_info: &epaint::stats::AllocInfo, what: &str) -> Response {
-    ui.add(Label::new(alloc_info.format(what)).wrap(false))
+    ui.add(Label::new(alloc_info.format(what)).wrap_mode(TextWrapMode::Extend))
 }
 
 impl Widget for &mut epaint::TessellationOptions {
@@ -146,25 +149,37 @@ impl Widget for &mut epaint::TessellationOptions {
                 debug_ignore_clip_rects,
                 bezier_tolerance,
                 epsilon: _,
+                parallel_tessellation,
+                validate_meshes,
             } = self;
 
-            ui.checkbox(feathering, "Feathering (antialias)")
-                .on_hover_text("Apply feathering to smooth out the edges of shapes. Turn off for small performance gain.");
-            let feathering_slider = crate::Slider::new(feathering_size_in_pixels, 0.0..=10.0)
-                .smallest_positive(0.1)
-                .logarithmic(true)
-                .text("Feathering size in pixels");
-            ui.add_enabled(*feathering, feathering_slider);
+            ui.horizontal(|ui| {
+                ui.checkbox(feathering, "Feathering (antialias)")
+                    .on_hover_text("Apply feathering to smooth out the edges of shapes. Turn off for small performance gain.");
+
+                if *feathering {
+                    ui.add(crate::DragValue::new(feathering_size_in_pixels).range(0.0..=10.0).speed(0.1).suffix(" px"));
+                }
+            });
 
             ui.checkbox(prerasterized_discs, "Speed up filled circles with pre-rasterization");
 
-            ui.add(
-                crate::widgets::Slider::new(bezier_tolerance, 0.0001..=10.0)
-                    .logarithmic(true)
-                    .show_value(true)
-                    .text("Spline Tolerance"),
-            );
-            ui.collapsing("debug", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Spline tolerance");
+                let speed = 0.01 * *bezier_tolerance;
+                ui.add(
+                    crate::DragValue::new(bezier_tolerance).range(0.0001..=10.0)
+                        .speed(speed)
+                );
+            });
+
+            ui.add_enabled(epaint::HAS_RAYON, crate::Checkbox::new(parallel_tessellation, "Parallelize tessellation")
+                ).on_hover_text("Only available if epaint was compiled with the rayon feature")
+                .on_disabled_hover_text("epaint was not compiled with the rayon feature");
+
+            ui.checkbox(validate_meshes, "Validate meshes").on_hover_text("Check that incoming meshes are valid, i.e. that all indices are in range, etc.");
+
+            ui.collapsing("Debug", |ui| {
                 ui.checkbox(
                     coarse_tessellation_culling,
                     "Do coarse culling in the tessellator",
@@ -181,14 +196,16 @@ impl Widget for &mut epaint::TessellationOptions {
     }
 }
 
-impl Widget for &memory::Interaction {
+impl Widget for &memory::InteractionState {
     fn ui(self, ui: &mut Ui) -> Response {
+        let memory::InteractionState {
+            potential_click_id,
+            potential_drag_id,
+        } = self;
+
         ui.vertical(|ui| {
-            ui.label(format!("click_id: {:?}", self.click_id));
-            ui.label(format!("drag_id: {:?}", self.drag_id));
-            ui.label(format!("drag_is_window: {:?}", self.drag_is_window));
-            ui.label(format!("click_interest: {:?}", self.click_interest));
-            ui.label(format!("drag_interest: {:?}", self.drag_interest));
+            ui.label(format!("potential_click_id: {potential_click_id:?}"));
+            ui.label(format!("potential_drag_id: {potential_drag_id:?}"));
         })
         .response
     }

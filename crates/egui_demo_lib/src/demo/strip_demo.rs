@@ -1,4 +1,4 @@
-use egui::Color32;
+use egui::{Color32, TextStyle};
 use egui_extras::{Size, StripBuilder};
 
 /// Shows off a table with dynamic layout
@@ -6,9 +6,9 @@ use egui_extras::{Size, StripBuilder};
 #[derive(Default)]
 pub struct StripDemo {}
 
-impl super::Demo for StripDemo {
+impl crate::Demo for StripDemo {
     fn name(&self) -> &'static str {
-        "▣ Strip Demo"
+        "▣ Strip"
     }
 
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
@@ -17,13 +17,13 @@ impl super::Demo for StripDemo {
             .resizable(true)
             .default_width(400.0)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for StripDemo {
+impl crate::View for StripDemo {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let dark_mode = ui.visuals().dark_mode;
         let faded_color = ui.visuals().window_fill();
@@ -33,11 +33,12 @@ impl super::View for StripDemo {
             egui::lerp(Rgba::from(color)..=Rgba::from(faded_color), t).into()
         };
 
+        let body_text_size = TextStyle::Body.resolve(ui.style()).size;
         StripBuilder::new(ui)
             .size(Size::exact(50.0))
             .size(Size::remainder())
             .size(Size::relative(0.5).at_least(60.0))
-            .size(Size::exact(10.5))
+            .size(Size::exact(body_text_size))
             .vertical(|mut strip| {
                 strip.cell(|ui| {
                     ui.painter().rect_filled(

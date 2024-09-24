@@ -23,7 +23,7 @@ impl Default for TextLayoutDemo {
     }
 }
 
-impl super::Demo for TextLayoutDemo {
+impl crate::Demo for TextLayoutDemo {
     fn name(&self) -> &'static str {
         "🖹 Text Layout"
     }
@@ -33,13 +33,13 @@ impl super::Demo for TextLayoutDemo {
             .open(open)
             .resizable(true)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for TextLayoutDemo {
+impl crate::View for TextLayoutDemo {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let Self {
             break_anywhere,
@@ -124,7 +124,7 @@ impl super::View for TextLayoutDemo {
         };
 
         egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
+            .auto_shrink(false)
             .show(ui, |ui| {
                 let extra_letter_spacing = points_per_pixel * *extra_letter_spacing_pixels as f32;
                 let line_height = (*line_height_pixels != 0)

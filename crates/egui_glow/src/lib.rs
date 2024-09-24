@@ -10,19 +10,20 @@
 
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 pub mod painter;
 pub use glow;
-pub use painter::{CallbackFn, Painter};
+pub use painter::{CallbackFn, Painter, PainterError};
 mod misc_util;
 mod shader_version;
 mod vao;
 
 pub use shader_version::ShaderVersion;
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "winit"))]
+#[cfg(feature = "winit")]
 pub mod winit;
-#[cfg(all(not(target_arch = "wasm32"), feature = "winit"))]
+#[cfg(feature = "winit")]
 pub use winit::*;
 
 /// Check for OpenGL error and report it using `log::error`.
@@ -138,4 +139,4 @@ mod profiling_scopes {
 }
 
 #[allow(unused_imports)]
-pub(crate) use profiling_scopes::*;
+pub(crate) use profiling_scopes::{profile_function, profile_scope};

@@ -1,36 +1,93 @@
-use crate::*;
+use std::sync::Arc;
 
-pub fn adjust_colors(shape: &mut Shape, adjust_color: &impl Fn(&mut Color32)) {
+use crate::{
+    color, CircleShape, Color32, ColorMode, CubicBezierShape, EllipseShape, Mesh, PathShape,
+    QuadraticBezierShape, RectShape, Shape, TextShape,
+};
+
+/// Remember to handle [`Color32::PLACEHOLDER`] specially!
+pub fn adjust_colors(
+    shape: &mut Shape,
+    adjust_color: impl Fn(&mut Color32) + Send + Sync + Copy + 'static,
+) {
     #![allow(clippy::match_same_arms)]
     match shape {
         Shape::Noop => {}
+
         Shape::Vec(shapes) => {
             for shape in shapes {
                 adjust_colors(shape, adjust_color);
             }
         }
-        Shape::Circle(circle_shape) => {
-            adjust_color(&mut circle_shape.fill);
-            adjust_color(&mut circle_shape.stroke.color);
+
+        Shape::LineSegment { stroke, points: _ } => {
+            adjust_color_mode(&mut stroke.color, adjust_color);
         }
-        Shape::LineSegment { stroke, .. } => {
+
+        Shape::Path(PathShape {
+            points: _,
+            closed: _,
+            fill,
+            stroke,
+        })
+        | Shape::QuadraticBezier(QuadraticBezierShape {
+            points: _,
+            closed: _,
+            fill,
+            stroke,
+        })
+        | Shape::CubicBezier(CubicBezierShape {
+            points: _,
+            closed: _,
+            fill,
+            stroke,
+        }) => {
+            adjust_color(fill);
+            adjust_color_mode(&mut stroke.color, adjust_color);
+        }
+
+        Shape::Circle(CircleShape {
+            center: _,
+            radius: _,
+            fill,
+            stroke,
+        })
+        | Shape::Ellipse(EllipseShape {
+            center: _,
+            radius: _,
+            fill,
+            stroke,
+        })
+        | Shape::Rect(RectShape {
+            rect: _,
+            rounding: _,
+            fill,
+            stroke,
+            blur_width: _,
+            fill_texture_id: _,
+            uv: _,
+        }) => {
+            adjust_color(fill);
             adjust_color(&mut stroke.color);
         }
-        Shape::Path(path_shape) => {
-            adjust_color(&mut path_shape.fill);
-            adjust_color(&mut path_shape.stroke.color);
-        }
-        Shape::Rect(rect_shape) => {
-            adjust_color(&mut rect_shape.fill);
-            adjust_color(&mut rect_shape.stroke.color);
-        }
-        Shape::Text(text_shape) => {
-            if let Some(override_text_color) = &mut text_shape.override_text_color {
+
+        Shape::Text(TextShape {
+            pos: _,
+            galley,
+            underline,
+            fallback_color,
+            override_text_color,
+            opacity_factor: _,
+            angle: _,
+        }) => {
+            adjust_color(&mut underline.color);
+            adjust_color(fallback_color);
+            if let Some(override_text_color) = override_text_color {
                 adjust_color(override_text_color);
             }
 
-            if !text_shape.galley.is_empty() {
-                let galley = std::sync::Arc::make_mut(&mut text_shape.galley);
+            if !galley.is_empty() {
+                let galley = std::sync::Arc::make_mut(galley);
                 for row in &mut galley.rows {
                     for vertex in &mut row.visuals.mesh.vertices {
                         adjust_color(&mut vertex.color);
@@ -38,21 +95,36 @@ pub fn adjust_colors(shape: &mut Shape, adjust_color: &impl Fn(&mut Color32)) {
                 }
             }
         }
-        Shape::Mesh(mesh) => {
-            for v in &mut mesh.vertices {
+
+        Shape::Mesh(Mesh {
+            indices: _,
+            vertices,
+            texture_id: _,
+        }) => {
+            for v in vertices {
                 adjust_color(&mut v.color);
             }
         }
-        Shape::QuadraticBezier(quadratic) => {
-            adjust_color(&mut quadratic.fill);
-            adjust_color(&mut quadratic.stroke.color);
-        }
-        Shape::CubicBezier(bezier) => {
-            adjust_color(&mut bezier.fill);
-            adjust_color(&mut bezier.stroke.color);
-        }
+
         Shape::Callback(_) => {
             // Can't tint user callback code
+        }
+    }
+}
+
+fn adjust_color_mode(
+    color_mode: &mut ColorMode,
+    adjust_color: impl Fn(&mut Color32) + Send + Sync + Copy + 'static,
+) {
+    match color_mode {
+        color::ColorMode::Solid(color) => adjust_color(color),
+        color::ColorMode::UV(callback) => {
+            let callback = callback.clone();
+            *color_mode = color::ColorMode::UV(Arc::new(Box::new(move |rect, pos| {
+                let mut color = callback(rect, pos);
+                adjust_color(&mut color);
+                color
+            })));
         }
     }
 }

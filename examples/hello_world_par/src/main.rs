@@ -1,22 +1,23 @@
 //! This example shows that you can use egui in parallel from multiple threads.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use eframe::egui;
 
-fn main() -> Result<(), eframe::Error> {
+fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(1024.0, 768.0)),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]),
         ..Default::default()
     };
     eframe::run_native(
         "My parallel egui App",
         options,
-        Box::new(|_cc| Box::new(MyApp::new())),
+        Box::new(|_cc| Ok(Box::new(MyApp::new()))),
     )
 }
 
@@ -49,7 +50,7 @@ impl ThreadState {
                     ui.text_edit_singleline(&mut self.name);
                 });
                 ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
-                if ui.button("Click each year").clicked() {
+                if ui.button("Increment").clicked() {
                     self.age += 1;
                 }
                 ui.label(format!("Hello '{}', age {}", self.name, self.age));

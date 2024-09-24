@@ -49,7 +49,7 @@ impl TextureManager {
     pub fn set(&mut self, id: TextureId, delta: ImageDelta) {
         if let Some(meta) = self.metas.get_mut(&id) {
             if let Some(pos) = delta.pos {
-                crate::epaint_assert!(
+                debug_assert!(
                     pos[0] + delta.image.width() <= meta.size[0]
                         && pos[1] + delta.image.height() <= meta.size[1],
                     "Partial texture update is outside the bounds of texture {id:?}",
@@ -63,7 +63,7 @@ impl TextureManager {
             }
             self.delta.set.push((id, delta));
         } else {
-            crate::epaint_assert!(false, "Tried setting texture {id:?} which is not allocated");
+            debug_assert!(false, "Tried setting texture {id:?} which is not allocated");
         }
     }
 
@@ -77,7 +77,7 @@ impl TextureManager {
                 self.delta.free.push(id);
             }
         } else {
-            crate::epaint_assert!(false, "Tried freeing texture {id:?} which is not allocated");
+            debug_assert!(false, "Tried freeing texture {id:?} which is not allocated");
         }
     }
 
@@ -88,7 +88,7 @@ impl TextureManager {
         if let Some(meta) = self.metas.get_mut(&id) {
             meta.retain_count += 1;
         } else {
-            crate::epaint_assert!(
+            debug_assert!(
                 false,
                 "Tried retaining texture {id:?} which is not allocated",
             );
@@ -156,6 +156,19 @@ pub struct TextureOptions {
 
     /// How to filter when minifying (when texels are smaller than pixels).
     pub minification: TextureFilter,
+
+    /// How to wrap the texture when the texture coordinates are outside the [0, 1] range.
+    pub wrap_mode: TextureWrapMode,
+
+    /// How to filter between texture mipmaps.
+    ///
+    /// Mipmaps ensures textures look smooth even when the texture is very small and pixels are much
+    /// larger than individual texels.
+    ///
+    /// # Notes
+    ///
+    /// - This may not be available on all backends (currently only `egui_glow`).
+    pub mipmap_mode: Option<TextureFilter>,
 }
 
 impl TextureOptions {
@@ -163,13 +176,56 @@ impl TextureOptions {
     pub const LINEAR: Self = Self {
         magnification: TextureFilter::Linear,
         minification: TextureFilter::Linear,
+        wrap_mode: TextureWrapMode::ClampToEdge,
+        mipmap_mode: None,
     };
 
     /// Nearest magnification and minification.
     pub const NEAREST: Self = Self {
         magnification: TextureFilter::Nearest,
         minification: TextureFilter::Nearest,
+        wrap_mode: TextureWrapMode::ClampToEdge,
+        mipmap_mode: None,
     };
+
+    /// Linear magnification and minification, but with the texture repeated.
+    pub const LINEAR_REPEAT: Self = Self {
+        magnification: TextureFilter::Linear,
+        minification: TextureFilter::Linear,
+        wrap_mode: TextureWrapMode::Repeat,
+        mipmap_mode: None,
+    };
+
+    /// Linear magnification and minification, but with the texture mirrored and repeated.
+    pub const LINEAR_MIRRORED_REPEAT: Self = Self {
+        magnification: TextureFilter::Linear,
+        minification: TextureFilter::Linear,
+        wrap_mode: TextureWrapMode::MirroredRepeat,
+        mipmap_mode: None,
+    };
+
+    /// Nearest magnification and minification, but with the texture repeated.
+    pub const NEAREST_REPEAT: Self = Self {
+        magnification: TextureFilter::Nearest,
+        minification: TextureFilter::Nearest,
+        wrap_mode: TextureWrapMode::Repeat,
+        mipmap_mode: None,
+    };
+
+    /// Nearest magnification and minification, but with the texture mirrored and repeated.
+    pub const NEAREST_MIRRORED_REPEAT: Self = Self {
+        magnification: TextureFilter::Nearest,
+        minification: TextureFilter::Nearest,
+        wrap_mode: TextureWrapMode::MirroredRepeat,
+        mipmap_mode: None,
+    };
+
+    pub const fn with_mipmap_mode(self, mipmap_mode: Option<TextureFilter>) -> Self {
+        Self {
+            mipmap_mode,
+            ..self
+        }
+    }
 }
 
 impl Default for TextureOptions {
@@ -193,6 +249,23 @@ pub enum TextureFilter {
     Linear,
 }
 
+/// Defines how textures are wrapped around objects when texture coordinates fall outside the [0, 1] range.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum TextureWrapMode {
+    /// Stretches the edge pixels to fill beyond the texture's bounds.
+    ///
+    /// This is what you want to use for a normal image in a GUI.
+    #[default]
+    ClampToEdge,
+
+    /// Tiles the texture across the surface, repeating it horizontally and vertically.
+    Repeat,
+
+    /// Mirrors the texture with each repetition, creating symmetrical tiling.
+    MirroredRepeat,
+}
+
 // ----------------------------------------------------------------------------
 
 /// What has been allocated and freed during the last period.
@@ -214,7 +287,7 @@ impl TexturesDelta {
         self.set.is_empty() && self.free.is_empty()
     }
 
-    pub fn append(&mut self, mut newer: TexturesDelta) {
+    pub fn append(&mut self, mut newer: Self) {
         self.set.extend(newer.set);
         self.free.append(&mut newer.free);
     }

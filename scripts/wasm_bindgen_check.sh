@@ -12,18 +12,14 @@ else
 fi
 
 CRATE_NAME="egui_demo_app"
-FEATURES="glow,http,persistence,web_screen_reader"
-
-# This is required to enable the web_sys clipboard API which eframe web uses
-# https://rustwasm.github.io/wasm-bindgen/api/web_sys/struct.Clipboard.html
-# https://rustwasm.github.io/docs/wasm-bindgen/web-sys/unstable-apis.html
-export RUSTFLAGS=--cfg=web_sys_unstable_apis
+FEATURES="glow,http,persistence"
 
 echo "Building rust…"
 BUILD=debug # debug builds are faster
 
 (cd crates/$CRATE_NAME &&
   cargo build \
+    --quiet \
     --lib \
     --target wasm32-unknown-unknown \
     --no-default-features \

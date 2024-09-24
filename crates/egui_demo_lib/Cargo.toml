@@ -1,12 +1,12 @@
 [package]
 name = "egui_demo_lib"
-version = "0.23.0"
+version.workspace = true
 authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
 description = "Example library for egui"
-edition = "2021"
-rust-version = "1.70"
+edition.workspace = true
+rust-version.workspace = true
 homepage = "https://github.com/emilk/egui/tree/master/crates/egui_demo_lib"
-license = "MIT OR Apache-2.0"
+license.workspace = true
 readme = "README.md"
 repository = "https://github.com/emilk/egui/tree/master/crates/egui_demo_lib"
 categories = ["gui", "graphics"]
@@ -19,8 +19,12 @@ include = [
     "data/icon.png",
 ]
 
+[lints]
+workspace = true
+
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--generate-link-to-definition"]
 
 [lib]
 
@@ -31,28 +35,28 @@ default = []
 chrono = ["egui_extras/datepicker", "dep:chrono"]
 
 ## Allow serialization using [`serde`](https://docs.rs/serde).
-serde = ["egui/serde", "egui_plot/serde", "dep:serde"]
+serde = ["egui/serde", "dep:serde", "egui_extras/serde"]
 
 ## Enable better syntax highlighting using [`syntect`](https://docs.rs/syntect).
 syntect = ["egui_extras/syntect"]
 
 
 [dependencies]
-egui = { version = "0.23.0", path = "../egui", default-features = false }
-egui_extras = { version = "0.23.0", path = "../egui_extras" }
-egui_plot = { version = "0.23.0", path = "../egui_plot" }
-log = { version = "0.4", features = ["std"] }
-unicode_names2 = { version = "0.6.0", default-features = false }
+egui = { workspace = true, default-features = false, features = ["color-hex"] }
+egui_extras = { workspace = true, features = ["default"] }
+
+log.workspace = true
+unicode_names2 = { version = "0.6.0", default-features = false } # this old version has fewer dependencies
 
 #! ### Optional dependencies
 chrono = { version = "0.4", optional = true, features = ["js-sys", "wasmbind"] }
 ## Enable this when generating docs.
-document-features = { version = "0.2", optional = true }
-serde = { version = "1", optional = true, features = ["derive"] }
+document-features = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 
 [dev-dependencies]
-criterion = { version = "0.4", default-features = false }
+criterion.workspace = true
 
 
 [[bench]]

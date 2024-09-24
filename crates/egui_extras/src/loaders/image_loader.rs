@@ -1,5 +1,5 @@
+use ahash::HashMap;
 use egui::{
-    ahash::HashMap,
     load::{BytesPoll, ImageLoadResult, ImageLoader, ImagePoll, LoadError, SizeHint},
     mutex::Mutex,
     ColorImage,
@@ -14,10 +14,11 @@ pub struct ImageCrateLoader {
 }
 
 impl ImageCrateLoader {
-    pub const ID: &str = egui::generate_loader_id!(ImageCrateLoader);
+    pub const ID: &'static str = egui::generate_loader_id!(ImageCrateLoader);
 }
 
 fn is_supported_uri(uri: &str) -> bool {
+    // TODO(emilk): use https://github.com/image-rs/image/pull/2038 when new `image` crate is released.
     let Some(ext) = Path::new(uri).extension().and_then(|ext| ext.to_str()) else {
         // `true` because if there's no extension, assume that we support it
         return true;
@@ -27,6 +28,7 @@ fn is_supported_uri(uri: &str) -> bool {
 }
 
 fn is_unsupported_mime(mime: &str) -> bool {
+    // TODO(emilk): use https://github.com/image-rs/image/pull/2038 when new `image` crate is released.
     mime.contains("svg")
 }
 

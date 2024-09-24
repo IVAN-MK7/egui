@@ -1,8 +1,8 @@
 //! Handles paint layers, i.e. how things
 //! are sometimes painted behind or in front of other things.
 
-use crate::{Id, *};
-use epaint::{ClippedShape, Shape};
+use crate::{ahash, epaint, Id, IdMap, Rect};
+use epaint::{emath::TSTransform, ClippedShape, Shape};
 
 /// Different layer categories
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -31,7 +31,7 @@ pub enum Order {
 
 impl Order {
     const COUNT: usize = 6;
-    const ALL: [Order; Self::COUNT] = [
+    const ALL: [Self; Self::COUNT] = [
         Self::Background,
         Self::PanelResizeLine,
         Self::Middle,
@@ -48,8 +48,8 @@ impl Order {
             | Self::PanelResizeLine
             | Self::Middle
             | Self::Foreground
+            | Self::Tooltip
             | Self::Debug => true,
-            Self::Tooltip => false,
         }
     }
 
@@ -67,7 +67,7 @@ impl Order {
 }
 
 /// An identifier for a paint layer.
-/// Also acts as an identifier for [`Area`]:s.
+/// Also acts as an identifier for [`crate::Area`]:s.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct LayerId {
@@ -90,7 +90,7 @@ impl LayerId {
     pub fn background() -> Self {
         Self {
             order: Order::Background,
-            id: Id::background(),
+            id: Id::new("background"),
         }
     }
 
@@ -110,8 +110,9 @@ impl LayerId {
 }
 
 /// A unique identifier of a specific [`Shape`] in a [`PaintList`].
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ShapeIdx(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShapeIdx(pub usize);
 
 /// A list of [`Shape`]s paired with a clip rectangle.
 #[derive(Clone, Default)]
@@ -123,10 +124,14 @@ impl PaintList {
         self.0.is_empty()
     }
 
+    pub fn next_idx(&self) -> ShapeIdx {
+        ShapeIdx(self.0.len())
+    }
+
     /// Returns the index of the new [`Shape`] that can be used with `PaintList::set`.
     #[inline(always)]
     pub fn add(&mut self, clip_rect: Rect, shape: Shape) -> ShapeIdx {
-        let idx = ShapeIdx(self.0.len());
+        let idx = self.next_idx();
         self.0.push(ClippedShape { clip_rect, shape });
         idx
     }
@@ -148,29 +153,77 @@ impl PaintList {
     /// and then later setting it using `paint_list.set(idx, cr, frame);`.
     #[inline(always)]
     pub fn set(&mut self, idx: ShapeIdx, clip_rect: Rect, shape: Shape) {
+        if self.0.len() <= idx.0 {
+            #[cfg(feature = "log")]
+            log::warn!("Index {} is out of bounds for PaintList", idx.0);
+            return;
+        }
+
         self.0[idx.0] = ClippedShape { clip_rect, shape };
     }
 
-    /// Translate each [`Shape`] and clip rectangle by this much, in-place
-    pub fn translate(&mut self, delta: Vec2) {
+    /// Set the given shape to be empty (a `Shape::Noop`).
+    #[inline(always)]
+    pub fn reset_shape(&mut self, idx: ShapeIdx) {
+        self.0[idx.0].shape = Shape::Noop;
+    }
+
+    /// Mutate the shape at the given index, if any.
+    pub fn mutate_shape(&mut self, idx: ShapeIdx, f: impl FnOnce(&mut ClippedShape)) {
+        self.0.get_mut(idx.0).map(f);
+    }
+
+    /// Transform each [`Shape`] and clip rectangle by this much, in-place
+    pub fn transform(&mut self, transform: TSTransform) {
         for ClippedShape { clip_rect, shape } in &mut self.0 {
-            *clip_rect = clip_rect.translate(delta);
-            shape.translate(delta);
+            *clip_rect = transform.mul_rect(*clip_rect);
+            shape.transform(transform);
         }
+    }
+
+    /// Transform each [`Shape`] and clip rectangle in range by this much, in-place
+    pub fn transform_range(&mut self, start: ShapeIdx, end: ShapeIdx, transform: TSTransform) {
+        for ClippedShape { clip_rect, shape } in &mut self.0[start.0..end.0] {
+            *clip_rect = transform.mul_rect(*clip_rect);
+            shape.transform(transform);
+        }
+    }
+
+    /// Read-only access to all held shapes.
+    pub fn all_entries(&self) -> impl ExactSizeIterator<Item = &ClippedShape> {
+        self.0.iter()
     }
 }
 
+/// This is where painted [`Shape`]s end up during a frame.
 #[derive(Clone, Default)]
-pub(crate) struct GraphicLayers([IdMap<PaintList>; Order::COUNT]);
+pub struct GraphicLayers([IdMap<PaintList>; Order::COUNT]);
 
 impl GraphicLayers {
-    pub fn list(&mut self, layer_id: LayerId) -> &mut PaintList {
+    /// Get or insert the [`PaintList`] for the given [`LayerId`].
+    pub fn entry(&mut self, layer_id: LayerId) -> &mut PaintList {
         self.0[layer_id.order as usize]
             .entry(layer_id.id)
             .or_default()
     }
 
-    pub fn drain(&mut self, area_order: &[LayerId]) -> impl ExactSizeIterator<Item = ClippedShape> {
+    /// Get the [`PaintList`] for the given [`LayerId`].
+    pub fn get(&self, layer_id: LayerId) -> Option<&PaintList> {
+        self.0[layer_id.order as usize].get(&layer_id.id)
+    }
+
+    /// Get the [`PaintList`] for the given [`LayerId`].
+    pub fn get_mut(&mut self, layer_id: LayerId) -> Option<&mut PaintList> {
+        self.0[layer_id.order as usize].get_mut(&layer_id.id)
+    }
+
+    pub fn drain(
+        &mut self,
+        area_order: &[LayerId],
+        transforms: &ahash::HashMap<LayerId, TSTransform>,
+    ) -> Vec<ClippedShape> {
+        crate::profile_function!();
+
         let mut all_shapes: Vec<_> = Default::default();
 
         for &order in &Order::ALL {
@@ -185,17 +238,32 @@ impl GraphicLayers {
             for layer_id in area_order {
                 if layer_id.order == order {
                     if let Some(list) = order_map.get_mut(&layer_id.id) {
+                        if let Some(transform) = transforms.get(layer_id) {
+                            for clipped_shape in &mut list.0 {
+                                clipped_shape.clip_rect = *transform * clipped_shape.clip_rect;
+                                clipped_shape.shape.transform(*transform);
+                            }
+                        }
                         all_shapes.append(&mut list.0);
                     }
                 }
             }
 
             // Also draw areas that are missing in `area_order`:
-            for shapes in order_map.values_mut() {
-                all_shapes.append(&mut shapes.0);
+            for (id, list) in order_map {
+                let layer_id = LayerId::new(order, *id);
+
+                if let Some(transform) = transforms.get(&layer_id) {
+                    for clipped_shape in &mut list.0 {
+                        clipped_shape.clip_rect = *transform * clipped_shape.clip_rect;
+                        clipped_shape.shape.transform(*transform);
+                    }
+                }
+
+                all_shapes.append(&mut list.0);
             }
         }
 
-        all_shapes.into_iter()
+        all_shapes
     }
 }
