@@ -14,11 +14,17 @@ jobs:
       id: myRequest
       uses: fjogeleit/http-request-action@v1
       with:
-        url: 'https://mk7.tech:13117/Vester/API'
+        url: ${{ secrets.EGUI_DEMO_TESTING_URL }}
         method: 'POST'
-        customHeaders: '{"Content-Type": "application/json", "Accept": "application/json, text/plain, */*"}'
-        #data: '{"token": ${{ secrets.VESTER_TOKEN }}, "repository_url": "https://github.com/IVAN-MK7/egui", "repository_branch_name": "vester_visual_testing"}'
-        data: '{"token": "${{ secrets.VESTER_TOKEN }}", "repository_url": "${{ github.event.pull_request.head.repo.html_url }}", "repository_branch_name": "${{ github.event.pull_request.head.ref }}"}'
+        headers: |
+          Content-Type: application/json
+          Accept: application/json, text/plain, */*
+        #"repository_url_and_branch": ["https://github.com/IVAN-MK7/egui", "master"]
+        body: |
+          {
+            "env_gen_id": ${{ secrets.EGUI_APP_DEMO_ENV_GEN_ID }},
+            "repository_url_and_branch": ["${{ github.event.pull_request.head.repo.html_url }}", "${{ github.event.pull_request.head.ref }}"]
+          }
         timeout: 1000000
 
     - name: Show Response
@@ -28,7 +34,7 @@ jobs:
         echo ${{ github.ref }}
 
     - name: Check scan result
-      #if: ${{ fromJson(steps.myRequest.outputs.response).text != 'Token is valid, process executed, scan passed' }}
+      #if: ${{ fromJson(steps.myRequest.outputs.response).text != 'Environment Generator found, process executed, scan passed. Vester Task ran to completion.' }}
       if: ${{ !fromJson(steps.myRequest.outputs.response).success }}
       uses: actions/github-script@v3
       with:
