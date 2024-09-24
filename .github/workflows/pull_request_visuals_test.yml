@@ -16,11 +16,10 @@ jobs:
       with:
         url: ${{ secrets.EGUI_DEMO_TESTING_URL }}
         method: 'POST'
-        headers: |
-          Content-Type: application/json
+        customHeaders: |
           Accept: application/json, text/plain, */*
         #"repository_url_and_branch": ["https://github.com/IVAN-MK7/egui", "master"]
-        body: |
+        data: |
           {
             "env_gen_id": ${{ secrets.EGUI_APP_DEMO_ENV_GEN_ID }},
             "repository_url_and_branch": ["${{ github.event.pull_request.head.repo.html_url }}", "${{ github.event.pull_request.head.ref }}"]
