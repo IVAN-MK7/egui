@@ -12,8 +12,6 @@
 
 #[cfg(feature = "cint")]
 mod cint_impl;
-#[cfg(feature = "cint")]
-pub use cint_impl::*;
 
 mod color32;
 pub use color32::*;
@@ -26,16 +24,22 @@ pub use hsva::*;
 
 #[cfg(feature = "color-hex")]
 mod hex_color_macro;
+#[cfg(feature = "color-hex")]
+#[doc(hidden)]
+pub use color_hex;
 
 mod rgba;
 pub use rgba::*;
+
+mod hex_color_runtime;
+pub use hex_color_runtime::*;
 
 // ----------------------------------------------------------------------------
 // Color conversion:
 
 impl From<Color32> for Rgba {
-    fn from(srgba: Color32) -> Rgba {
-        Rgba([
+    fn from(srgba: Color32) -> Self {
+        Self([
             linear_f32_from_gamma_u8(srgba.0[0]),
             linear_f32_from_gamma_u8(srgba.0[1]),
             linear_f32_from_gamma_u8(srgba.0[2]),
@@ -45,8 +49,8 @@ impl From<Color32> for Rgba {
 }
 
 impl From<Rgba> for Color32 {
-    fn from(rgba: Rgba) -> Color32 {
-        Color32([
+    fn from(rgba: Rgba) -> Self {
+        Self([
             gamma_u8_from_linear_f32(rgba.0[0]),
             gamma_u8_from_linear_f32(rgba.0[1]),
             gamma_u8_from_linear_f32(rgba.0[2]),
@@ -93,7 +97,7 @@ pub fn linear_u8_from_linear_f32(a: f32) -> u8 {
 }
 
 fn fast_round(r: f32) -> u8 {
-    (r + 0.5).floor() as _ // rust does a saturating cast since 1.45
+    (r + 0.5) as _ // rust does a saturating cast since 1.45
 }
 
 #[test]
@@ -126,22 +130,6 @@ pub fn gamma_from_linear(linear: f32) -> f32 {
         12.92 * linear
     } else {
         1.055 * linear.powf(1.0 / 2.4) - 0.055
-    }
-}
-
-// ----------------------------------------------------------------------------
-
-/// An assert that is only active when `epaint` is compiled with the `extra_asserts` feature
-/// or with the `extra_debug_asserts` feature in debug builds.
-#[macro_export]
-macro_rules! ecolor_assert {
-    ($($arg: tt)*) => {
-        if cfg!(any(
-            feature = "extra_asserts",
-            all(feature = "extra_debug_asserts", debug_assertions),
-        )) {
-            assert!($($arg)*);
-        }
     }
 }
 

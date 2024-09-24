@@ -1,5 +1,9 @@
-use super::*;
-use egui::*;
+use super::{Demo, View};
+
+use egui::{
+    vec2, Align, Checkbox, CollapsingHeader, Color32, Context, FontId, Frame, Resize, RichText,
+    Sense, Slider, Stroke, TextFormat, TextStyle, Ui, Vec2, Window,
+};
 
 /// Showcase some ui code
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -15,11 +19,12 @@ pub struct MiscDemoWindow {
 
     dummy_bool: bool,
     dummy_usize: usize,
+    checklist: [bool; 3],
 }
 
 impl Default for MiscDemoWindow {
-    fn default() -> MiscDemoWindow {
-        MiscDemoWindow {
+    fn default() -> Self {
+        Self {
             num_columns: 2,
 
             widgets: Default::default(),
@@ -30,6 +35,7 @@ impl Default for MiscDemoWindow {
 
             dummy_bool: false,
             dummy_usize: 0,
+            checklist: std::array::from_fn(|i| i == 0),
         }
     }
 }
@@ -107,6 +113,24 @@ impl View for MiscDemoWindow {
                     }
                 });
                 ui.radio_value(&mut self.dummy_usize, 64, "radio_value");
+                ui.label("Checkboxes can be in an indeterminate state:");
+                let mut all_checked = self.checklist.iter().all(|item| *item);
+                let any_checked = self.checklist.iter().any(|item| *item);
+                let indeterminate = any_checked && !all_checked;
+                if ui
+                    .add(
+                        Checkbox::new(&mut all_checked, "Check/uncheck all")
+                            .indeterminate(indeterminate),
+                    )
+                    .changed()
+                {
+                    self.checklist
+                        .iter_mut()
+                        .for_each(|checked| *checked = all_checked);
+                }
+                for (i, checked) in self.checklist.iter_mut().enumerate() {
+                    ui.checkbox(checked, format!("Item {}", i + 1));
+                }
             });
 
         ui.collapsing("Columns", |ui| {
@@ -133,6 +157,10 @@ impl View for MiscDemoWindow {
                     ui.label("Just pull the handle on the bottom right");
                 });
             });
+
+        CollapsingHeader::new("Ui Stack")
+            .default_open(false)
+            .show(ui, ui_stack_demo);
 
         CollapsingHeader::new("Misc")
             .default_open(false)
@@ -201,9 +229,9 @@ fn label_ui(ui: &mut egui::Ui) {
 
     ui.add(
         egui::Label::new(
-            "Labels containing long text can be set to elide the text that doesn't fit on a single line using `Label::elide`. When hovered, the label will show the full text.",
+            "Labels containing long text can be set to elide the text that doesn't fit on a single line using `Label::truncate`. When hovered, the label will show the full text.",
         )
-        .truncate(true),
+        .truncate(),
     );
 }
 
@@ -231,17 +259,6 @@ impl Widgets {
         ui.vertical_centered(|ui| {
             ui.add(crate::egui_github_link_file_line!());
         });
-
-        let tooltip_ui = |ui: &mut Ui| {
-            ui.heading("The name of the tooltip");
-            ui.horizontal(|ui| {
-                ui.label("This tooltip was created with");
-                ui.monospace(".on_hover_ui(…)");
-            });
-            let _ = ui.button("A button you can never press");
-        };
-        ui.label("Tooltips can be more than just simple text.")
-            .on_hover_ui(tooltip_ui);
 
         ui.separator();
 
@@ -279,7 +296,7 @@ struct ColorWidgets {
 impl Default for ColorWidgets {
     fn default() -> Self {
         // Approximately the same color.
-        ColorWidgets {
+        Self {
             srgba_unmul: [0, 255, 183, 127],
             srgba_premul: [0, 187, 140, 127],
             rgba_unmul: [0.0, 1.0, 0.5, 0.5],
@@ -290,7 +307,7 @@ impl Default for ColorWidgets {
 
 impl ColorWidgets {
     fn ui(&mut self, ui: &mut Ui) {
-        egui::reset_button(ui, self);
+        egui::reset_button(ui, self, "Reset");
 
         ui.label("egui lets you edit colors stored as either sRGBA or linear RGBA and with or without premultiplied alpha");
 
@@ -371,7 +388,7 @@ impl BoxPainting {
                 ui.painter().rect(
                     rect,
                     self.rounding,
-                    Color32::from_gray(64),
+                    ui.visuals().text_color().gamma_multiply(0.5),
                     Stroke::new(self.stroke_width, Color32::WHITE),
                 );
             }
@@ -432,8 +449,8 @@ struct Tree(Vec<Tree>);
 impl Tree {
     pub fn demo() -> Self {
         Self(vec![
-            Tree(vec![Tree::default(); 4]),
-            Tree(vec![Tree(vec![Tree::default(); 2]); 3]),
+            Self(vec![Self::default(); 4]),
+            Self(vec![Self(vec![Self::default(); 2]); 3]),
         ])
     }
 
@@ -474,11 +491,77 @@ impl Tree {
             .collect();
 
         if ui.button("+").clicked() {
-            self.0.push(Tree::default());
+            self.0.push(Self::default());
         }
 
         Action::Keep
     }
+}
+
+// ----------------------------------------------------------------------------
+
+fn ui_stack_demo(ui: &mut Ui) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("The");
+        ui.code("egui::Ui");
+        ui.label("core type is typically deeply nested in");
+        ui.code("egui");
+        ui.label(
+            "applications. To provide context to nested code, it maintains a stack \
+                        with various information.\n\nThis is how the stack looks like here:",
+        );
+    });
+    let stack = ui.stack().clone();
+    Frame {
+        inner_margin: ui.spacing().menu_margin,
+        stroke: ui.visuals().widgets.noninteractive.bg_stroke,
+        ..Default::default()
+    }
+    .show(ui, |ui| {
+        egui_extras::TableBuilder::new(ui)
+            .column(egui_extras::Column::auto())
+            .column(egui_extras::Column::auto())
+            .header(18.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("id");
+                });
+                header.col(|ui| {
+                    ui.strong("kind");
+                });
+            })
+            .body(|mut body| {
+                for node in stack.iter() {
+                    body.row(18.0, |mut row| {
+                        row.col(|ui| {
+                            let response = ui.label(format!("{:?}", node.id));
+
+                            if response.hovered() {
+                                ui.ctx().debug_painter().debug_rect(
+                                    node.max_rect,
+                                    Color32::GREEN,
+                                    "max_rect",
+                                );
+                                ui.ctx().debug_painter().circle_filled(
+                                    node.min_rect.min,
+                                    2.0,
+                                    Color32::RED,
+                                );
+                            }
+                        });
+
+                        row.col(|ui| {
+                            ui.label(if let Some(kind) = node.kind() {
+                                format!("{kind:?}")
+                            } else {
+                                "-".to_owned()
+                            });
+                        });
+                    });
+                }
+            });
+    });
+
+    ui.small("Hover on UI's ids to display their origin and max rect.");
 }
 
 // ----------------------------------------------------------------------------
@@ -497,8 +580,17 @@ fn text_layout_demo(ui: &mut Ui) {
     };
 
     job.append(
-        "This is a demonstration of ",
+        "This",
         first_row_indentation,
+        TextFormat {
+            color: default_color,
+            font_id: FontId::proportional(20.0),
+            ..Default::default()
+        },
+    );
+    job.append(
+        " is a demonstration of ",
+        0.0,
         TextFormat {
             color: default_color,
             ..Default::default()
@@ -549,7 +641,7 @@ fn text_layout_demo(ui: &mut Ui) {
         "mixing ",
         0.0,
         TextFormat {
-            font_id: FontId::proportional(17.0),
+            font_id: FontId::proportional(20.0),
             color: default_color,
             ..Default::default()
         },

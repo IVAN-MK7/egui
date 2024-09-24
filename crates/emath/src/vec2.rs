@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::fmt;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+
+use crate::Vec2b;
 
 /// A vector has a direction and length.
 /// A [`Vec2`] is often used to represent a size.
@@ -86,6 +89,16 @@ impl From<&Vec2> for (f32, f32) {
     }
 }
 
+impl From<Vec2b> for Vec2 {
+    #[inline(always)]
+    fn from(v: Vec2b) -> Self {
+        Self {
+            x: v.x as i32 as f32,
+            y: v.y as i32 as f32,
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Mint compatibility and convenience conversions
 
@@ -108,16 +121,27 @@ impl From<Vec2> for mint::Vector2<f32> {
 // ----------------------------------------------------------------------------
 
 impl Vec2 {
-    pub const X: Vec2 = Vec2 { x: 1.0, y: 0.0 };
-    pub const Y: Vec2 = Vec2 { x: 0.0, y: 1.0 };
+    /// Right
+    pub const X: Self = Self { x: 1.0, y: 0.0 };
 
-    pub const RIGHT: Vec2 = Vec2 { x: 1.0, y: 0.0 };
-    pub const LEFT: Vec2 = Vec2 { x: -1.0, y: 0.0 };
-    pub const UP: Vec2 = Vec2 { x: 0.0, y: -1.0 };
-    pub const DOWN: Vec2 = Vec2 { x: 0.0, y: 1.0 };
+    /// Down
+    pub const Y: Self = Self { x: 0.0, y: 1.0 };
+
+    /// +X
+    pub const RIGHT: Self = Self { x: 1.0, y: 0.0 };
+
+    /// -X
+    pub const LEFT: Self = Self { x: -1.0, y: 0.0 };
+
+    /// -Y
+    pub const UP: Self = Self { x: 0.0, y: -1.0 };
+
+    /// +Y
+    pub const DOWN: Self = Self { x: 0.0, y: 1.0 };
 
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
     pub const INFINITY: Self = Self::splat(f32::INFINITY);
+    pub const NAN: Self = Self::splat(f32::NAN);
 
     #[inline(always)]
     pub const fn new(x: f32, y: f32) -> Self {
@@ -203,7 +227,8 @@ impl Vec2 {
     /// ```
     #[inline(always)]
     pub fn angled(angle: f32) -> Self {
-        vec2(angle.cos(), angle.sin())
+        let (sin, cos) = angle.sin_cos();
+        vec2(cos, sin)
     }
 
     #[must_use]
@@ -274,6 +299,16 @@ impl Vec2 {
         self.x.max(self.y)
     }
 
+    /// Swizzle the axes.
+    #[inline]
+    #[must_use]
+    pub fn yx(self) -> Self {
+        Self {
+            x: self.y,
+            y: self.x,
+        }
+    }
+
     #[must_use]
     #[inline]
     pub fn clamp(self, min: Self, max: Self) -> Self {
@@ -311,18 +346,18 @@ impl std::ops::IndexMut<usize> for Vec2 {
 impl Eq for Vec2 {}
 
 impl Neg for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     #[inline(always)]
-    fn neg(self) -> Vec2 {
+    fn neg(self) -> Self {
         vec2(-self.x, -self.y)
     }
 }
 
 impl AddAssign for Vec2 {
     #[inline(always)]
-    fn add_assign(&mut self, rhs: Vec2) {
-        *self = Vec2 {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         };
@@ -331,8 +366,8 @@ impl AddAssign for Vec2 {
 
 impl SubAssign for Vec2 {
     #[inline(always)]
-    fn sub_assign(&mut self, rhs: Vec2) {
-        *self = Vec2 {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         };
@@ -340,11 +375,11 @@ impl SubAssign for Vec2 {
 }
 
 impl Add for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     #[inline(always)]
-    fn add(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
+    fn add(self, rhs: Self) -> Self {
+        Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         }
@@ -352,11 +387,11 @@ impl Add for Vec2 {
 }
 
 impl Sub for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     #[inline(always)]
-    fn sub(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
+    fn sub(self, rhs: Self) -> Self {
+        Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
@@ -364,12 +399,12 @@ impl Sub for Vec2 {
 }
 
 /// Element-wise multiplication
-impl Mul<Vec2> for Vec2 {
-    type Output = Vec2;
+impl Mul<Self> for Vec2 {
+    type Output = Self;
 
     #[inline(always)]
-    fn mul(self, vec: Vec2) -> Vec2 {
-        Vec2 {
+    fn mul(self, vec: Self) -> Self {
+        Self {
             x: self.x * vec.x,
             y: self.y * vec.y,
         }
@@ -377,12 +412,12 @@ impl Mul<Vec2> for Vec2 {
 }
 
 /// Element-wise division
-impl Div<Vec2> for Vec2 {
-    type Output = Vec2;
+impl Div<Self> for Vec2 {
+    type Output = Self;
 
     #[inline(always)]
-    fn div(self, rhs: Vec2) -> Vec2 {
-        Vec2 {
+    fn div(self, rhs: Self) -> Self {
+        Self {
             x: self.x / rhs.x,
             y: self.y / rhs.y,
         }
@@ -397,12 +432,20 @@ impl MulAssign<f32> for Vec2 {
     }
 }
 
+impl DivAssign<f32> for Vec2 {
+    #[inline(always)]
+    fn div_assign(&mut self, rhs: f32) {
+        self.x /= rhs;
+        self.y /= rhs;
+    }
+}
+
 impl Mul<f32> for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     #[inline(always)]
-    fn mul(self, factor: f32) -> Vec2 {
-        Vec2 {
+    fn mul(self, factor: f32) -> Self {
+        Self {
             x: self.x * factor,
             y: self.y * factor,
         }
@@ -422,20 +465,35 @@ impl Mul<Vec2> for f32 {
 }
 
 impl Div<f32> for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     #[inline(always)]
-    fn div(self, factor: f32) -> Vec2 {
-        Vec2 {
+    fn div(self, factor: f32) -> Self {
+        Self {
             x: self.x / factor,
             y: self.y / factor,
         }
     }
 }
 
-impl std::fmt::Debug for Vec2 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:.1} {:.1}]", self.x, self.y)
+impl fmt::Debug for Vec2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(precision) = f.precision() {
+            write!(f, "[{1:.0$} {2:.0$}]", precision, self.x, self.y)
+        } else {
+            write!(f, "[{:.1} {:.1}]", self.x, self.y)
+        }
+    }
+}
+
+impl fmt::Display for Vec2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        self.x.fmt(f)?;
+        f.write_str(" ")?;
+        self.y.fmt(f)?;
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
@@ -460,4 +518,20 @@ fn test_vec2() {
     assert_eq!(Vec2::DOWN.angle(), 0.25 * TAU);
     almost_eq!(Vec2::LEFT.angle(), 0.50 * TAU);
     assert_eq!(Vec2::UP.angle(), -0.25 * TAU);
+
+    let mut assignment = vec2(1.0, 2.0);
+    assignment += vec2(3.0, 4.0);
+    assert_eq!(assignment, vec2(4.0, 6.0));
+
+    let mut assignment = vec2(4.0, 6.0);
+    assignment -= vec2(1.0, 2.0);
+    assert_eq!(assignment, vec2(3.0, 4.0));
+
+    let mut assignment = vec2(1.0, 2.0);
+    assignment *= 2.0;
+    assert_eq!(assignment, vec2(2.0, 4.0));
+
+    let mut assignment = vec2(2.0, 4.0);
+    assignment /= 2.0;
+    assert_eq!(assignment, vec2(1.0, 2.0));
 }

@@ -12,6 +12,7 @@ mod web_logger;
 mod web_runner;
 
 /// Access to the browser screen reader.
+#[cfg(feature = "web_screen_reader")]
 pub mod screen_reader;
 
 /// Access to local browser storage.
@@ -39,15 +40,43 @@ pub(crate) type ActiveWebPainter = web_painter_wgpu::WebPainterWgpu;
 
 pub use backend::*;
 
-use egui::Vec2;
 use wasm_bindgen::prelude::*;
 use web_sys::MediaQueryList;
 
-use input::*;
-
-use crate::Theme;
+use input::{
+    button_from_mouse_event, modifiers_from_kb_event, modifiers_from_mouse_event,
+    modifiers_from_wheel_event, pos_from_mouse_event, primary_touch_pos, push_touches,
+    text_from_keyboard_event, translate_key,
+};
 
 // ----------------------------------------------------------------------------
+
+pub(crate) fn string_from_js_value(value: &JsValue) -> String {
+    value.as_string().unwrap_or_else(|| format!("{value:#?}"))
+}
+
+/// Returns the `Element` with active focus.
+///
+/// Elements can only be focused if they are:
+/// - `<a>`/`<area>` with an `href` attribute
+/// - `<input>`/`<select>`/`<textarea>`/`<button>` which aren't `disabled`
+/// - any other element with a `tabindex` attribute
+pub(crate) fn focused_element() -> Option<web_sys::Element> {
+    web_sys::window()?
+        .document()?
+        .active_element()?
+        .dyn_into()
+        .ok()
+}
+
+pub(crate) fn has_focus<T: JsCast>(element: &T) -> bool {
+    fn try_has_focus<T: JsCast>(element: &T) -> Option<bool> {
+        let element = element.dyn_ref::<web_sys::Element>()?;
+        let focused_element = focused_element()?;
+        Some(element == &focused_element)
+    }
+    try_has_focus(element).unwrap_or(false)
+}
 
 /// Current time in seconds (since undefined point in time).
 ///
@@ -76,7 +105,7 @@ pub fn native_pixels_per_point() -> f32 {
 /// Ask the browser about the preferred system theme.
 ///
 /// `None` means unknown.
-pub fn system_theme() -> Option<Theme> {
+pub fn system_theme() -> Option<egui::Theme> {
     let dark_mode = prefers_color_scheme_dark(&web_sys::window()?)
         .ok()??
         .matches();
@@ -87,92 +116,47 @@ fn prefers_color_scheme_dark(window: &web_sys::Window) -> Result<Option<MediaQue
     window.match_media("(prefers-color-scheme: dark)")
 }
 
-fn theme_from_dark_mode(dark_mode: bool) -> Theme {
+fn theme_from_dark_mode(dark_mode: bool) -> egui::Theme {
     if dark_mode {
-        Theme::Dark
+        egui::Theme::Dark
     } else {
-        Theme::Light
+        egui::Theme::Light
     }
 }
 
-fn canvas_element(canvas_id: &str) -> Option<web_sys::HtmlCanvasElement> {
-    let document = web_sys::window()?.document()?;
-    let canvas = document.get_element_by_id(canvas_id)?;
-    canvas.dyn_into::<web_sys::HtmlCanvasElement>().ok()
+/// Returns the canvas in client coordinates.
+fn canvas_content_rect(canvas: &web_sys::HtmlCanvasElement) -> egui::Rect {
+    let bounding_rect = canvas.get_bounding_client_rect();
+
+    let mut rect = egui::Rect::from_min_max(
+        egui::pos2(bounding_rect.left() as f32, bounding_rect.top() as f32),
+        egui::pos2(bounding_rect.right() as f32, bounding_rect.bottom() as f32),
+    );
+
+    // We need to subtract padding and border:
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(style)) = window.get_computed_style(canvas) {
+            let get_property = |name: &str| -> Option<f32> {
+                let property = style.get_property_value(name).ok()?;
+                property.trim_end_matches("px").parse::<f32>().ok()
+            };
+
+            rect.min.x += get_property("padding-left").unwrap_or_default();
+            rect.min.y += get_property("padding-top").unwrap_or_default();
+            rect.max.x -= get_property("padding-right").unwrap_or_default();
+            rect.max.y -= get_property("padding-bottom").unwrap_or_default();
+        }
+    }
+
+    rect
 }
 
-fn canvas_element_or_die(canvas_id: &str) -> web_sys::HtmlCanvasElement {
-    canvas_element(canvas_id)
-        .unwrap_or_else(|| panic!("Failed to find canvas with id {canvas_id:?}"))
-}
-
-fn canvas_origin(canvas_id: &str) -> egui::Pos2 {
-    let rect = canvas_element(canvas_id)
-        .unwrap()
-        .get_bounding_client_rect();
-    egui::pos2(rect.left() as f32, rect.top() as f32)
-}
-
-fn canvas_size_in_points(canvas_id: &str) -> egui::Vec2 {
-    let canvas = canvas_element(canvas_id).unwrap();
-    let pixels_per_point = native_pixels_per_point();
+fn canvas_size_in_points(canvas: &web_sys::HtmlCanvasElement, ctx: &egui::Context) -> egui::Vec2 {
+    let pixels_per_point = ctx.pixels_per_point();
     egui::vec2(
         canvas.width() as f32 / pixels_per_point,
         canvas.height() as f32 / pixels_per_point,
     )
-}
-
-fn resize_canvas_to_screen_size(canvas_id: &str, max_size_points: egui::Vec2) -> Option<()> {
-    let canvas = canvas_element(canvas_id)?;
-    let parent = canvas.parent_element()?;
-
-    // Prefer the client width and height so that if the parent
-    // element is resized that the egui canvas resizes appropriately.
-    let width = parent.client_width();
-    let height = parent.client_height();
-
-    let canvas_real_size = Vec2 {
-        x: width as f32,
-        y: height as f32,
-    };
-
-    if width <= 0 || height <= 0 {
-        log::error!("egui canvas parent size is {}x{}. Try adding `html, body {{ height: 100%; width: 100% }}` to your CSS!", width, height);
-    }
-
-    let pixels_per_point = native_pixels_per_point();
-
-    let max_size_pixels = pixels_per_point * max_size_points;
-
-    let canvas_size_pixels = pixels_per_point * canvas_real_size;
-    let canvas_size_pixels = canvas_size_pixels.min(max_size_pixels);
-    let canvas_size_points = canvas_size_pixels / pixels_per_point;
-
-    // Make sure that the height and width are always even numbers.
-    // otherwise, the page renders blurry on some platforms.
-    // See https://github.com/emilk/egui/issues/103
-    fn round_to_even(v: f32) -> f32 {
-        (v / 2.0).round() * 2.0
-    }
-
-    canvas
-        .style()
-        .set_property(
-            "width",
-            &format!("{}px", round_to_even(canvas_size_points.x)),
-        )
-        .ok()?;
-    canvas
-        .style()
-        .set_property(
-            "height",
-            &format!("{}px", round_to_even(canvas_size_points.y)),
-        )
-        .ok()?;
-    canvas.set_width(round_to_even(canvas_size_pixels.x) as u32);
-    canvas.set_height(round_to_even(canvas_size_pixels.y) as u32);
-
-    Some(())
 }
 
 // ----------------------------------------------------------------------------
@@ -188,19 +172,16 @@ fn set_cursor_icon(cursor: egui::CursorIcon) -> Option<()> {
 }
 
 /// Set the clipboard text.
-#[cfg(web_sys_unstable_apis)]
 fn set_clipboard_text(s: &str) {
     if let Some(window) = web_sys::window() {
-        if let Some(clipboard) = window.navigator().clipboard() {
-            let promise = clipboard.write_text(s);
-            let future = wasm_bindgen_futures::JsFuture::from(promise);
-            let future = async move {
-                if let Err(err) = future.await {
-                    log::error!("Copy/cut action failed: {err:?}");
-                }
-            };
-            wasm_bindgen_futures::spawn_local(future);
-        }
+        let promise = window.navigator().clipboard().write_text(s);
+        let future = wasm_bindgen_futures::JsFuture::from(promise);
+        let future = async move {
+            if let Err(err) = future.await {
+                log::error!("Copy/cut action failed: {}", string_from_js_value(&err));
+            }
+        };
+        wasm_bindgen_futures::spawn_local(future);
     }
 }
 

@@ -47,7 +47,7 @@ impl Default for Settings {
 ///
 /// Rule 1) will make sure an undo point is not created until you _stop_ dragging that slider.
 /// Rule 2) will make sure that you will get some undo points even if you are constantly changing the state.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Undoer<State> {
     settings: Settings,
@@ -57,16 +57,38 @@ pub struct Undoer<State> {
     /// The latest undo point may (often) be the current state.
     undos: VecDeque<State>,
 
+    /// Stores redos immediately after a sequence of undos.
+    /// Gets cleared every time the state changes.
+    /// Does not need to be a deque, because there can only be up to `undos.len()` redos,
+    /// which is already limited to `settings.max_undos`.
+    redos: Vec<State>,
+
     #[cfg_attr(feature = "serde", serde(skip))]
     flux: Option<Flux<State>>,
 }
 
 impl<State> std::fmt::Debug for Undoer<State> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { undos, .. } = self;
+        let Self { undos, redos, .. } = self;
         f.debug_struct("Undoer")
             .field("undo count", &undos.len())
+            .field("redo count", &redos.len())
             .finish()
+    }
+}
+
+impl<State> Default for Undoer<State>
+where
+    State: Clone + PartialEq,
+{
+    #[inline]
+    fn default() -> Self {
+        Self {
+            settings: Settings::default(),
+            undos: VecDeque::new(),
+            redos: Vec::new(),
+            flux: None,
+        }
     }
 }
 
@@ -82,6 +104,14 @@ impl<State> Undoer<State>
 where
     State: Clone + PartialEq,
 {
+    /// Create a new [`Undoer`] with the given [`Settings`].
+    pub fn with_settings(settings: Settings) -> Self {
+        Self {
+            settings,
+            ..Default::default()
+        }
+    }
+
     /// Do we have an undo point different from the given state?
     pub fn has_undo(&self, current_state: &State) -> bool {
         match self.undos.len() {
@@ -89,6 +119,10 @@ where
             1 => self.undos.back() != Some(current_state),
             _ => true,
         }
+    }
+
+    pub fn has_redo(&self, current_state: &State) -> bool {
+        !self.redos.is_empty() && self.undos.back() == Some(current_state)
     }
 
     /// Return true if the state is currently changing
@@ -101,7 +135,9 @@ where
             self.flux = None;
 
             if self.undos.back() == Some(current_state) {
-                self.undos.pop_back();
+                self.redos.push(self.undos.pop_back().unwrap());
+            } else {
+                self.redos.push(current_state.clone());
             }
 
             // Note: we keep the undo point intact.
@@ -111,9 +147,20 @@ where
         }
     }
 
+    pub fn redo(&mut self, current_state: &State) -> Option<&State> {
+        if !self.undos.is_empty() && self.undos.back() != Some(current_state) {
+            // state changed since the last undo, redos should be cleared.
+            self.redos.clear();
+            None
+        } else if let Some(state) = self.redos.pop() {
+            self.undos.push_back(state);
+            self.undos.back()
+        } else {
+            None
+        }
+    }
+
     /// Add an undo point if, and only if, there has been a change since the latest undo point.
-    ///
-    /// * `time`: current time in seconds.
     pub fn add_undo(&mut self, current_state: &State) {
         if self.undos.back() != Some(current_state) {
             self.undos.push_back(current_state.clone());
@@ -139,6 +186,8 @@ where
                 if latest_undo == current_state {
                     self.flux = None;
                 } else {
+                    self.redos.clear();
+
                     match self.flux.as_mut() {
                         None => {
                             self.flux = Some(Flux {

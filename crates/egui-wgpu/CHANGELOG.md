@@ -3,7 +3,61 @@ All notable changes to the `egui-wgpu` integration will be noted in this file.
 
 
 This file is updated upon each release.
-Changes since the last release can be found by running the `scripts/generate_changelog.py` script.
+Changes since the last release can be found at <https://github.com/emilk/egui/compare/latest...HEAD> or by running the `scripts/generate_changelog.py` script.
+
+
+## 0.28.1 - 2024-07-05
+Nothing new
+
+
+## 0.28.0 - 2024-07-03
+* Update to wgpu 0.20 [#4433](https://github.com/emilk/egui/pull/4433) by [@KeKsBoTer](https://github.com/KeKsBoTer)
+* Fix doclinks in egui-wgpu docs [#4677](https://github.com/emilk/egui/pull/4677) by [@emilk](https://github.com/emilk)
+
+
+## 0.27.2 - 2024-04-02
+* Nothing new
+
+
+## 0.27.1 - 2024-03-29
+* Nothing new
+
+
+## 0.27.0 - 2024-03-26
+* Improve panic message in egui-wgpu when failing to create buffers [#3986](https://github.com/emilk/egui/pull/3986)
+
+
+## 0.26.2 - 2024-02-14
+* Nothing new
+
+
+## 0.26.1 - 2024-02-11
+* Improve panic message in egui-wgpu when failing to create buffers [#3986](https://github.com/emilk/egui/pull/3986)
+
+
+## 0.26.0 - 2024-02-05
+* Update wgpu to 0.19 [#3824](https://github.com/emilk/egui/pull/3824)
+* Add `WgpuConfiguration::desired_maximum_frame_latency` [#3874](https://github.com/emilk/egui/pull/3874)
+* Disable the default features of `wgpu` [#3875](https://github.com/emilk/egui/pull/3875)
+* If WebGPU fails, re-try adapter creation with WebGL [#3895](https://github.com/emilk/egui/pull/3895) (thanks [@Wumpf](https://github.com/Wumpf)!)
+* Delay call to `get_current_texture` (possible small performance win) [#3914](https://github.com/emilk/egui/pull/3914)
+* Add `x11` and `wayland` features [#3909](https://github.com/emilk/egui/pull/3909) (thanks [@YgorSouza](https://github.com/YgorSouza)!)
+* Pass `ScreenDescriptor` to `egui_wgpu::CallbackTrait::prepare` [#3960](https://github.com/emilk/egui/pull/3960) (thanks [@StratusFearMe21](https://github.com/StratusFearMe21)!)
+* Make `egui_wgpu::renderer` a private module [#3979](https://github.com/emilk/egui/pull/3979)
+
+
+## 0.25.0 - 2024-01-08
+* Only call wgpu paint callback if viewport is positive [#3778](https://github.com/emilk/egui/pull/3778) (thanks [@msparkles](https://github.com/msparkles)!)
+
+
+## 0.24.1 - 2023-11-30
+* Add a few `puffin` profile scopes
+
+
+## 0.24.0 - 2023-11-23
+* Updated to wgpu 0.18 [#3505](https://github.com/emilk/egui/pull/3505) (thanks [@Wumpf](https://github.com/Wumpf)!)
+* Update MSRV to Rust 1.72 [#3595](https://github.com/emilk/egui/pull/3595)
+* Properly clamp and round viewport values, preventing rare warnings [#3604](https://github.com/emilk/egui/pull/3604) (thanks [@Wumpf](https://github.com/Wumpf)!)
 
 
 ## 0.23.0 - 2023-09-27

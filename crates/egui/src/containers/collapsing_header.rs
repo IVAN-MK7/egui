@@ -1,6 +1,9 @@
 use std::hash::Hash;
 
-use crate::*;
+use crate::{
+    emath, epaint, pos2, remap, remap_clamp, vec2, Context, Id, InnerResponse, NumExt, Rect,
+    Response, Sense, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo, WidgetText, WidgetType,
+};
 use epaint::Shape;
 
 #[derive(Clone, Copy, Debug)]
@@ -15,7 +18,7 @@ pub(crate) struct InnerState {
 
 /// This is a a building block for building collapsing regions.
 ///
-/// It is used by [`CollapsingHeader`] and [`Window`], but can also be used on its own.
+/// It is used by [`CollapsingHeader`] and [`crate::Window`], but can also be used on its own.
 ///
 /// See [`CollapsingState::show_header`] for how to show a collapsing header with a custom header.
 #[derive(Clone, Debug)]
@@ -45,7 +48,7 @@ impl CollapsingState {
     }
 
     pub fn load_with_default_open(ctx: &Context, id: Id, default_open: bool) -> Self {
-        Self::load(ctx, id).unwrap_or(CollapsingState {
+        Self::load(ctx, id).unwrap_or(Self {
             id,
             state: InnerState {
                 open: default_open,
@@ -72,7 +75,7 @@ impl CollapsingState {
         if ctx.memory(|mem| mem.everything_is_visible()) {
             1.0
         } else {
-            ctx.animate_bool(self.id, self.state.open)
+            ctx.animate_bool_responsive(self.id, self.state.open)
         }
     }
 
@@ -230,7 +233,7 @@ impl CollapsingState {
         }
     }
 
-    /// Paint this [CollapsingState](CollapsingState)'s toggle button. Takes an [IconPainter](IconPainter) as the icon.
+    /// Paint this [`CollapsingState`]'s toggle button. Takes an [`IconPainter`] as the icon.
     /// ```
     /// # egui::__run_test_ui(|ui| {
     /// fn circle_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
@@ -272,6 +275,18 @@ pub struct HeaderResponse<'ui, HeaderRet> {
 }
 
 impl<'ui, HeaderRet> HeaderResponse<'ui, HeaderRet> {
+    pub fn is_open(&self) -> bool {
+        self.state.is_open()
+    }
+
+    pub fn set_open(&mut self, open: bool) {
+        self.state.set_open(open);
+    }
+
+    pub fn toggle(&mut self) {
+        self.state.toggle(self.ui);
+    }
+
     /// Returns the response of the collapsing button, the custom header, and the custom body.
     pub fn body<BodyRet>(
         mut self,
@@ -357,7 +372,7 @@ pub struct CollapsingHeader {
     text: WidgetText,
     default_open: bool,
     open: Option<bool>,
-    id_source: Id,
+    id_salt: Id,
     enabled: bool,
     selectable: bool,
     selected: bool,
@@ -371,15 +386,15 @@ impl CollapsingHeader {
     /// The label is used as an [`Id`] source.
     /// If the label is unique and static this is fine,
     /// but if it changes or there are several [`CollapsingHeader`] with the same title
-    /// you need to provide a unique id source with [`Self::id_source`].
+    /// you need to provide a unique id source with [`Self::id_salt`].
     pub fn new(text: impl Into<WidgetText>) -> Self {
         let text = text.into();
-        let id_source = Id::new(text.text());
+        let id_salt = Id::new(text.text());
         Self {
             text,
             default_open: false,
             open: None,
-            id_source,
+            id_salt,
             enabled: true,
             selectable: false,
             selected: false,
@@ -390,6 +405,7 @@ impl CollapsingHeader {
 
     /// By default, the [`CollapsingHeader`] is collapsed.
     /// Call `.default_open(true)` to change this.
+    #[inline]
     pub fn default_open(mut self, open: bool) -> Self {
         self.default_open = open;
         self
@@ -400,6 +416,7 @@ impl CollapsingHeader {
     /// Calling `.open(Some(false))` will make the collapsing header close this frame (or stay closed).
     ///
     /// Calling `.open(None)` has no effect (default).
+    #[inline]
     pub fn open(mut self, open: Option<bool>) -> Self {
         self.open = open;
         self
@@ -407,44 +424,27 @@ impl CollapsingHeader {
 
     /// Explicitly set the source of the [`Id`] of this widget, instead of using title label.
     /// This is useful if the title label is dynamic or not unique.
-    pub fn id_source(mut self, id_source: impl Hash) -> Self {
-        self.id_source = Id::new(id_source);
+    #[inline]
+    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
+        self.id_salt = Id::new(id_salt);
+        self
+    }
+
+    /// Explicitly set the source of the [`Id`] of this widget, instead of using title label.
+    /// This is useful if the title label is dynamic or not unique.
+    #[deprecated = "Renamed id_salt"]
+    #[inline]
+    pub fn id_source(mut self, id_salt: impl Hash) -> Self {
+        self.id_salt = Id::new(id_salt);
         self
     }
 
     /// If you set this to `false`, the [`CollapsingHeader`] will be grayed out and un-clickable.
     ///
-    /// This is a convenience for [`Ui::set_enabled`].
+    /// This is a convenience for [`Ui::disable`].
+    #[inline]
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
-        self
-    }
-
-    /// Can the [`CollapsingHeader`] be selected by clicking it? Default: `false`.
-    #[deprecated = "Use the more powerful egui::collapsing_header::CollapsingState::show_header"] // Deprecated in 2022-04-28, before egui 0.18
-    pub fn selectable(mut self, selectable: bool) -> Self {
-        self.selectable = selectable;
-        self
-    }
-
-    /// If you set this to 'true', the [`CollapsingHeader`] will be shown as selected.
-    ///
-    /// Example:
-    /// ```
-    /// # egui::__run_test_ui(|ui| {
-    /// let mut selected = false;
-    /// let response = egui::CollapsingHeader::new("Select and open me")
-    ///     .selectable(true)
-    ///     .selected(selected)
-    ///     .show(ui, |ui| ui.label("Body"));
-    /// if response.header_response.clicked() {
-    ///     selected = true;
-    /// }
-    /// # });
-    /// ```
-    #[deprecated = "Use the more powerful egui::collapsing_header::CollapsingState::show_header"] // Deprecated in 2022-04-28, before egui 0.18
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
         self
     }
 
@@ -456,6 +456,7 @@ impl CollapsingHeader {
     /// ui.visuals_mut().collapsing_header_frame = true;
     /// # });
     /// ```
+    #[inline]
     pub fn show_background(mut self, show_background: bool) -> Self {
         self.show_background = show_background;
         self
@@ -478,6 +479,7 @@ impl CollapsingHeader {
     ///   .show(ui, |ui| { ui.label("Hi!"); });
     /// # });
     /// ```
+    #[inline]
     pub fn icon(mut self, icon_fn: impl FnOnce(&mut Ui, f32, &Response) + 'static) -> Self {
         self.icon = Some(Box::new(icon_fn));
         self
@@ -501,7 +503,7 @@ impl CollapsingHeader {
             text,
             default_open,
             open,
-            id_source,
+            id_salt,
             enabled: _,
             selectable,
             selected,
@@ -510,29 +512,33 @@ impl CollapsingHeader {
 
         // TODO(emilk): horizontal layout, with icon and text as labels. Insert background behind using Frame.
 
-        let id = ui.make_persistent_id(id_source);
+        let id = ui.make_persistent_id(id_salt);
         let button_padding = ui.spacing().button_padding;
 
         let available = ui.available_rect_before_wrap();
         let text_pos = available.min + vec2(ui.spacing().indent, 0.0);
         let wrap_width = available.right() - text_pos.x;
-        let wrap = Some(false);
-        let text = text.into_galley(ui, wrap, wrap_width, TextStyle::Button);
-        let text_max_x = text_pos.x + text.size().x;
+        let galley = text.into_galley(
+            ui,
+            Some(TextWrapMode::Extend),
+            wrap_width,
+            TextStyle::Button,
+        );
+        let text_max_x = text_pos.x + galley.size().x;
 
         let mut desired_width = text_max_x + button_padding.x - available.left();
         if ui.visuals().collapsing_header_frame {
             desired_width = desired_width.max(available.width()); // fill full width
         }
 
-        let mut desired_size = vec2(desired_width, text.size().y + 2.0 * button_padding.y);
+        let mut desired_size = vec2(desired_width, galley.size().y + 2.0 * button_padding.y);
         desired_size = desired_size.at_least(ui.spacing().interact_size);
         let (_, rect) = ui.allocate_space(desired_size);
 
         let mut header_response = ui.interact(rect, id, Sense::click());
         let text_pos = pos2(
             text_pos.x,
-            header_response.rect.center().y - text.size().y / 2.0,
+            header_response.rect.center().y - galley.size().y / 2.0,
         );
 
         let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
@@ -546,8 +552,9 @@ impl CollapsingHeader {
             header_response.mark_changed();
         }
 
-        header_response
-            .widget_info(|| WidgetInfo::labeled(WidgetType::CollapsingHeader, text.text()));
+        header_response.widget_info(|| {
+            WidgetInfo::labeled(WidgetType::CollapsingHeader, ui.is_enabled(), galley.text())
+        });
 
         let openness = state.openness(ui.ctx());
 
@@ -585,7 +592,7 @@ impl CollapsingHeader {
                 }
             }
 
-            text.paint_with_visuals(ui.painter(), text_pos, &visuals);
+            ui.painter().galley(text_pos, galley, visuals.text_color());
         }
 
         Prepared {
@@ -622,7 +629,9 @@ impl CollapsingHeader {
         // Make sure body is bellow header,
         // and make sure it is one unit (necessary for putting a [`CollapsingHeader`] in a grid).
         ui.vertical(|ui| {
-            ui.set_enabled(self.enabled);
+            if !self.enabled {
+                ui.disable();
+            }
 
             let Prepared {
                 header_response,

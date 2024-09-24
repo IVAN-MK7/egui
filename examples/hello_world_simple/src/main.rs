@@ -1,12 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::egui;
 
-fn main() -> Result<(), eframe::Error> {
+fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(320.0, 240.0)),
+        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
         ..Default::default()
     };
 
@@ -23,7 +24,7 @@ fn main() -> Result<(), eframe::Error> {
                     .labelled_by(name_label.id);
             });
             ui.add(egui::Slider::new(&mut age, 0..=120).text("age"));
-            if ui.button("Click each year").clicked() {
+            if ui.button("Increment").clicked() {
                 age += 1;
             }
             ui.label(format!("Hello '{name}', age {age}"));

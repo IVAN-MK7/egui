@@ -10,7 +10,6 @@ use super::web_painter::WebPainter;
 
 pub(crate) struct WebPainterGlow {
     canvas: HtmlCanvasElement,
-    canvas_id: String,
     painter: egui_glow::Painter,
 }
 
@@ -19,21 +18,16 @@ impl WebPainterGlow {
         self.painter.gl()
     }
 
-    pub async fn new(canvas_id: &str, options: &WebOptions) -> Result<Self, String> {
-        let canvas = super::canvas_element_or_die(canvas_id);
-
+    pub async fn new(canvas: HtmlCanvasElement, options: &WebOptions) -> Result<Self, String> {
         let (gl, shader_prefix) =
             init_glow_context_from_canvas(&canvas, options.webgl_context_option)?;
+        #[allow(clippy::arc_with_non_send_sync)]
         let gl = std::sync::Arc::new(gl);
 
-        let painter = egui_glow::Painter::new(gl, shader_prefix, None)
+        let painter = egui_glow::Painter::new(gl, shader_prefix, None, options.dithering)
             .map_err(|err| format!("Error starting glow painter: {err}"))?;
 
-        Ok(Self {
-            canvas,
-            canvas_id: canvas_id.to_owned(),
-            painter,
-        })
+        Ok(Self { canvas, painter })
     }
 }
 
@@ -42,8 +36,8 @@ impl WebPainter for WebPainterGlow {
         self.painter.max_texture_side()
     }
 
-    fn canvas_id(&self) -> &str {
-        &self.canvas_id
+    fn canvas(&self) -> &HtmlCanvasElement {
+        &self.canvas
     }
 
     fn paint_and_update_textures(

@@ -8,7 +8,10 @@ use crate::{
     },
     TextureAtlas,
 };
-use emath::NumExt as _;
+use emath::{NumExt as _, OrderedFloat};
+
+#[cfg(feature = "default_fonts")]
+use epaint_default_fonts::{EMOJI_ICON, HACK_REGULAR, NOTO_EMOJI_REGULAR, UBUNTU_LIGHT};
 
 // ----------------------------------------------------------------------------
 
@@ -56,7 +59,7 @@ impl std::hash::Hash for FontId {
     #[inline(always)]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let Self { size, family } = self;
-        crate::f32_hash(state, *size);
+        emath::OrderedFloat(*size).hash(state);
         family.hash(state);
     }
 }
@@ -156,6 +159,8 @@ pub struct FontTweak {
     /// Shift font's glyphs downwards by this fraction of the font size (in points).
     /// this is only a visual effect and does not affect the text layout.
     ///
+    /// Affects larger font sizes more.
+    ///
     /// A positive value shifts the text downwards.
     /// A negative value shifts it upwards.
     ///
@@ -164,6 +169,8 @@ pub struct FontTweak {
 
     /// Shift font's glyphs downwards by this amount of logical points.
     /// this is only a visual effect and does not affect the text layout.
+    ///
+    /// Affects all font sizes equally.
     ///
     /// Example value: `2.0`.
     pub y_offset: f32,
@@ -182,7 +189,7 @@ impl Default for FontTweak {
             scale: 1.0,
             y_offset_factor: 0.0,
             y_offset: 0.0,
-            baseline_offset_factor: -0.0333, // makes the default fonts look more centered in buttons and such
+            baseline_offset_factor: 0.0,
         }
     }
 }
@@ -217,7 +224,7 @@ fn ab_glyph_font_from_font_data(name: &str, data: &FontData) -> ab_glyph::FontAr
 ///
 /// // Install my own font (maybe supporting non-latin characters):
 /// fonts.font_data.insert("my_font".to_owned(),
-///    FontData::from_static(include_bytes!("../../fonts/Ubuntu-Light.ttf"))); // .ttf and .otf supported
+///    FontData::from_static(include_bytes!("../../../epaint_default_fonts/fonts/Ubuntu-Light.ttf"))); // .ttf and .otf supported
 ///
 /// // Put my font first (highest priority):
 /// fonts.families.get_mut(&FontFamily::Proportional).unwrap()
@@ -263,39 +270,29 @@ impl Default for FontDefinitions {
 
         let mut families = BTreeMap::new();
 
-        font_data.insert(
-            "Hack".to_owned(),
-            FontData::from_static(include_bytes!("../../fonts/Hack-Regular.ttf")),
-        );
-        font_data.insert(
-            "Ubuntu-Light".to_owned(),
-            FontData::from_static(include_bytes!("../../fonts/Ubuntu-Light.ttf")),
-        );
+        font_data.insert("Hack".to_owned(), FontData::from_static(HACK_REGULAR));
 
         // Some good looking emojis. Use as first priority:
         font_data.insert(
             "NotoEmoji-Regular".to_owned(),
-            FontData::from_static(include_bytes!("../../fonts/NotoEmoji-Regular.ttf")).tweak(
-                FontTweak {
-                    scale: 0.81, // make it smaller
-                    ..Default::default()
-                },
-            ),
+            FontData::from_static(NOTO_EMOJI_REGULAR).tweak(FontTweak {
+                scale: 0.81, // Make smaller
+                ..Default::default()
+            }),
+        );
+
+        font_data.insert(
+            "Ubuntu-Light".to_owned(),
+            FontData::from_static(UBUNTU_LIGHT),
         );
 
         // Bigger emojis, and more. <http://jslegers.github.io/emoji-icon-font/>:
         font_data.insert(
             "emoji-icon-font".to_owned(),
-            FontData::from_static(include_bytes!("../../fonts/emoji-icon-font.ttf")).tweak(
-                FontTweak {
-                    scale: 0.88, // make it smaller
-
-                    // probably not correct, but this does make texts look better (#2724 for details)
-                    y_offset_factor: 0.11, // move glyphs down to better align with common fonts
-                    baseline_offset_factor: -0.11, // ...now the entire row is a bit down so shift it back
-                    ..Default::default()
-                },
-            ),
+            FontData::from_static(EMOJI_ICON).tweak(FontTweak {
+                scale: 0.90, // Make smaller
+                ..Default::default()
+            }),
         );
 
         families.insert(
@@ -335,6 +332,23 @@ impl FontDefinitions {
             families,
         }
     }
+
+    /// List of all the builtin font names used by `epaint`.
+    #[cfg(feature = "default_fonts")]
+    pub fn builtin_font_names() -> &'static [&'static str] {
+        &[
+            "Ubuntu-Light",
+            "NotoEmoji-Regular",
+            "emoji-icon-font",
+            "Hack",
+        ]
+    }
+
+    /// List of all the builtin font names used by `epaint`.
+    #[cfg(not(feature = "default_fonts"))]
+    pub fn builtin_font_names() -> &'static [&'static str] {
+        &[]
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -347,7 +361,8 @@ impl FontDefinitions {
 ///
 /// If you are using `egui`, use `egui::Context::set_fonts` and `egui::Context::fonts`.
 ///
-/// You need to call [`Self::begin_frame`] and [`Self::font_image_delta`] once every frame.
+/// You need to call [`Self::begin_pass`] and [`Self::font_image_delta`] once every frame.
+#[derive(Clone)]
 pub struct Fonts(Arc<Mutex<FontsAndCache>>);
 
 impl Fonts {
@@ -375,11 +390,10 @@ impl Fonts {
     ///
     /// This function will react to changes in `pixels_per_point` and `max_texture_side`,
     /// as well as notice when the font atlas is getting full, and handle that.
-    pub fn begin_frame(&self, pixels_per_point: f32, max_texture_side: usize) {
+    pub fn begin_pass(&self, pixels_per_point: f32, max_texture_side: usize) {
         let mut fonts_and_cache = self.0.lock();
 
-        let pixels_per_point_changed =
-            (fonts_and_cache.fonts.pixels_per_point - pixels_per_point).abs() > 1e-3;
+        let pixels_per_point_changed = fonts_and_cache.fonts.pixels_per_point != pixels_per_point;
         let max_texture_side_changed = fonts_and_cache.fonts.max_texture_side != max_texture_side;
         let font_atlas_almost_full = fonts_and_cache.fonts.atlas.lock().fill_ratio() > 0.8;
         let needs_recreate =
@@ -423,6 +437,12 @@ impl Fonts {
     /// Pass this to [`crate::Tessellator`].
     pub fn texture_atlas(&self) -> Arc<Mutex<TextureAtlas>> {
         self.lock().fonts.atlas.clone()
+    }
+
+    /// The full font atlas image.
+    #[inline]
+    pub fn image(&self) -> crate::FontImage {
+        self.lock().fonts.atlas.lock().image().clone()
     }
 
     /// Current size of the font image.
@@ -484,7 +504,7 @@ impl Fonts {
     /// How full is the font atlas?
     ///
     /// This increases as new fonts and/or glyphs are used,
-    /// but can also decrease in a call to [`Self::begin_frame`].
+    /// but can also decrease in a call to [`Self::begin_pass`].
     pub fn font_atlas_fill_ratio(&self) -> f32 {
         self.lock().fonts.atlas.lock().fill_ratio()
     }
@@ -525,12 +545,7 @@ impl Fonts {
         font_id: FontId,
         wrap_width: f32,
     ) -> Arc<Galley> {
-        self.layout_job(LayoutJob::simple(
-            text,
-            font_id,
-            crate::Color32::TEMPORARY_COLOR,
-            wrap_width,
-        ))
+        self.layout(text, font_id, crate::Color32::PLACEHOLDER, wrap_width)
     }
 }
 
@@ -549,21 +564,6 @@ impl FontsAndCache {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct HashableF32(f32);
-
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl std::hash::Hash for HashableF32 {
-    #[inline(always)]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::f32_hash(state, self.0);
-    }
-}
-
-impl Eq for HashableF32 {}
-
-// ----------------------------------------------------------------------------
-
 /// The collection of fonts used by `epaint`.
 ///
 /// Required in order to paint text.
@@ -573,7 +573,7 @@ pub struct FontsImpl {
     definitions: FontDefinitions,
     atlas: Arc<Mutex<TextureAtlas>>,
     font_impl_cache: FontImplCache,
-    sized_family: ahash::HashMap<(HashableF32, FontFamily), Font>,
+    sized_family: ahash::HashMap<(OrderedFloat<f32>, FontFamily), Font>,
 }
 
 impl FontsImpl {
@@ -590,7 +590,7 @@ impl FontsImpl {
         );
 
         let texture_width = max_texture_side.at_most(8 * 1024);
-        let initial_height = 64;
+        let initial_height = 32; // Keep initial font atlas small, so it is fast to upload to GPU. This will expand as needed anyways.
         let atlas = TextureAtlas::new([texture_width, initial_height]);
 
         let atlas = Arc::new(Mutex::new(atlas));
@@ -620,10 +620,11 @@ impl FontsImpl {
 
     /// Get the right font implementation from size and [`FontFamily`].
     pub fn font(&mut self, font_id: &FontId) -> &mut Font {
-        let FontId { size, family } = font_id;
+        let FontId { mut size, family } = font_id;
+        size = size.at_least(0.1).at_most(2048.0);
 
         self.sized_family
-            .entry((HashableF32(*size), family.clone()))
+            .entry((OrderedFloat(size), family.clone()))
             .or_insert_with(|| {
                 let fonts = &self.definitions.families.get(family);
                 let fonts = fonts
@@ -631,7 +632,7 @@ impl FontsImpl {
 
                 let fonts: Vec<Arc<FontImpl>> = fonts
                     .iter()
-                    .map(|font_name| self.font_impl_cache.font_impl(*size, font_name))
+                    .map(|font_name| self.font_impl_cache.font_impl(size, font_name))
                     .collect();
 
                 Font::new(fonts)

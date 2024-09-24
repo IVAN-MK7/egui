@@ -8,7 +8,6 @@
 
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
-#![forbid(unsafe_code)]
 
 #[cfg(feature = "chrono")]
 mod datepicker;
@@ -64,7 +63,7 @@ mod profiling_scopes {
 }
 
 #[allow(unused_imports)]
-pub(crate) use profiling_scopes::*;
+pub(crate) use profiling_scopes::profile_function;
 
 // ---------------------------------------------------------------------------
 

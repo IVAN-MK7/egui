@@ -15,19 +15,22 @@
     // Tell Rust Analyzer to use its own target directory, so we don't need to wait for it to finish wen we want to `cargo run`
     "rust-analyzer.check.overrideCommand": [
         "cargo",
-        "cranky",
+        "clippy",
         "--target-dir=target_ra",
         "--workspace",
         "--message-format=json",
         "--all-targets",
+        "--all-features",
     ],
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
-        "check",
+        "clippy",
         "--quiet",
         "--target-dir=target_ra",
         "--workspace",
         "--message-format=json",
         "--all-targets",
+        "--all-features",
     ],
+    "rust-analyzer.showUnlinkedFileNotification": false,
 }

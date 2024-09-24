@@ -38,8 +38,8 @@ impl FrameHistory {
             1e3 * self.mean_frame_time()
         ))
         .on_hover_text(
-            "Includes egui layout and tessellation time.\n\
-            Does not include GPU usage, nor overhead for sending data to GPU.",
+            "Includes all app logic, egui layout, tessellation, and rendering.\n\
+            Does not include waiting for vsync.",
         );
         egui::warn_if_debug_build(ui);
 
@@ -52,8 +52,8 @@ impl FrameHistory {
         }
     }
 
-    fn graph(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        use egui::*;
+    fn graph(&self, ui: &mut egui::Ui) -> egui::Response {
+        use egui::{emath, epaint, pos2, vec2, Pos2, Rect, Sense, Shape, Stroke, TextStyle};
 
         ui.label("egui CPU usage history");
 

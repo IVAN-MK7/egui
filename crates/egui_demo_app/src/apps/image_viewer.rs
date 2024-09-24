@@ -27,9 +27,9 @@ enum ChosenFit {
 impl ChosenFit {
     fn as_str(&self) -> &'static str {
         match self {
-            ChosenFit::ExactSize => "exact size",
-            ChosenFit::Fraction => "fraction",
-            ChosenFit::OriginalSize => "original size",
+            Self::ExactSize => "exact size",
+            Self::Fraction => "fraction",
+            Self::OriginalSize => "original size",
         }
     }
 }
@@ -184,10 +184,15 @@ impl eframe::App for ImageViewer {
             ui.add_space(5.0);
             ui.label("Aspect ratio is maintained by scaling both sides as necessary");
             ui.checkbox(&mut self.maintain_aspect_ratio, "Maintain aspect ratio");
+
+            // forget all images
+            if ui.button("Forget all images").clicked() {
+                ui.ctx().forget_all_images();
+            }
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::new([true, true]).show(ui, |ui| {
+            egui::ScrollArea::both().show(ui, |ui| {
                 let mut image = egui::Image::from_uri(&self.current_uri);
                 image = image.uv(self.image_options.uv);
                 image = image.bg_fill(self.image_options.bg_fill);

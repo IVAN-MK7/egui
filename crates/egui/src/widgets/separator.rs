@@ -1,6 +1,6 @@
-use crate::*;
+use crate::{vec2, Response, Sense, Ui, Vec2, Widget};
 
-/// A visual separator. A horizontal or vertical line (depending on [`Layout`]).
+/// A visual separator. A horizontal or vertical line (depending on [`crate::Layout`]).
 ///
 /// Usually you'd use the shorter version [`Ui::separator`].
 ///
@@ -36,6 +36,7 @@ impl Separator {
     ///
     /// In a horizontal layout, with a vertical Separator,
     /// this is the width of the separator widget.
+    #[inline]
     pub fn spacing(mut self, spacing: f32) -> Self {
         self.spacing = spacing;
         self
@@ -45,6 +46,7 @@ impl Separator {
     ///
     /// By default you will get a horizontal line in vertical layouts,
     /// and a vertical line in horizontal layouts.
+    #[inline]
     pub fn horizontal(mut self) -> Self {
         self.is_horizontal_line = Some(true);
         self
@@ -54,6 +56,7 @@ impl Separator {
     ///
     /// By default you will get a horizontal line in vertical layouts,
     /// and a vertical line in horizontal layouts.
+    #[inline]
     pub fn vertical(mut self) -> Self {
         self.is_horizontal_line = Some(false);
         self
@@ -64,6 +67,7 @@ impl Separator {
     /// The default is to take up the available width/height of the parent.
     ///
     /// This will make the line extend outside the parent ui.
+    #[inline]
     pub fn grow(mut self, extra: f32) -> Self {
         self.grow += extra;
         self
@@ -74,6 +78,7 @@ impl Separator {
     /// The default is to take up the available width/height of the parent.
     ///
     /// This effectively adds margins to the line.
+    #[inline]
     pub fn shrink(mut self, shrink: f32) -> Self {
         self.grow -= shrink;
         self
@@ -82,7 +87,7 @@ impl Separator {
 
 impl Widget for Separator {
     fn ui(self, ui: &mut Ui) -> Response {
-        let Separator {
+        let Self {
             spacing,
             grow,
             is_horizontal_line,
@@ -91,7 +96,11 @@ impl Widget for Separator {
         let is_horizontal_line = is_horizontal_line
             .unwrap_or_else(|| ui.is_grid() || !ui.layout().main_dir().is_horizontal());
 
-        let available_space = ui.available_size_before_wrap();
+        let available_space = if ui.is_sizing_pass() {
+            Vec2::ZERO
+        } else {
+            ui.available_size_before_wrap()
+        };
 
         let size = if is_horizontal_line {
             vec2(available_space.x, spacing)
@@ -107,12 +116,12 @@ impl Widget for Separator {
             if is_horizontal_line {
                 painter.hline(
                     (rect.left() - grow)..=(rect.right() + grow),
-                    painter.round_to_pixel(rect.center().y),
+                    painter.round_to_pixel_center(rect.center().y),
                     stroke,
                 );
             } else {
                 painter.vline(
-                    painter.round_to_pixel(rect.center().x),
+                    painter.round_to_pixel_center(rect.center().x),
                     (rect.top() - grow)..=(rect.bottom() + grow),
                     stroke,
                 );

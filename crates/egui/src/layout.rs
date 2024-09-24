@@ -1,4 +1,7 @@
-use crate::{egui_assert, emath::*, Align};
+use crate::{
+    emath::{pos2, vec2, Align2, NumExt, Pos2, Rect, Vec2},
+    Align,
+};
 use std::f32::INFINITY;
 
 // ----------------------------------------------------------------------------
@@ -13,7 +16,7 @@ pub(crate) struct Region {
     /// Always finite.
     ///
     /// The bounding box of all child widgets, but not necessarily a tight bounding box
-    /// since [`Ui`](crate::Ui) can start with a non-zero min_rect size.
+    /// since [`Ui`](crate::Ui) can start with a non-zero `min_rect` size.
     pub min_rect: Rect,
 
     /// The maximum size of this [`Ui`](crate::Ui). This is a *soft max*
@@ -38,7 +41,7 @@ pub(crate) struct Region {
     /// So one can think of `cursor` as a constraint on the available region.
     ///
     /// If something has already been added, this will point to `style.spacing.item_spacing` beyond the latest child.
-    /// The cursor can thus be `style.spacing.item_spacing` pixels outside of the min_rect.
+    /// The cursor can thus be `style.spacing.item_spacing` pixels outside of the `min_rect`.
     pub(crate) cursor: Rect,
 }
 
@@ -66,9 +69,9 @@ impl Region {
     }
 
     pub fn sanity_check(&self) {
-        egui_assert!(!self.min_rect.any_nan());
-        egui_assert!(!self.max_rect.any_nan());
-        egui_assert!(!self.cursor.any_nan());
+        debug_assert!(!self.min_rect.any_nan());
+        debug_assert!(!self.max_rect.any_nan());
+        debug_assert!(!self.cursor.any_nan());
     }
 }
 
@@ -88,16 +91,16 @@ impl Direction {
     #[inline(always)]
     pub fn is_horizontal(self) -> bool {
         match self {
-            Direction::LeftToRight | Direction::RightToLeft => true,
-            Direction::TopDown | Direction::BottomUp => false,
+            Self::LeftToRight | Self::RightToLeft => true,
+            Self::TopDown | Self::BottomUp => false,
         }
     }
 
     #[inline(always)]
     pub fn is_vertical(self) -> bool {
         match self {
-            Direction::LeftToRight | Direction::RightToLeft => false,
-            Direction::TopDown | Direction::BottomUp => true,
+            Self::LeftToRight | Self::RightToLeft => false,
+            Self::TopDown | Self::BottomUp => true,
         }
     }
 }
@@ -389,8 +392,8 @@ impl Layout {
 /// ## Doing layout
 impl Layout {
     pub fn align_size_within_rect(&self, size: Vec2, outer: Rect) -> Rect {
-        egui_assert!(size.x >= 0.0 && size.y >= 0.0);
-        egui_assert!(!outer.is_negative());
+        debug_assert!(size.x >= 0.0 && size.y >= 0.0);
+        debug_assert!(!outer.is_negative());
         self.align2().align_size_within_rect(size, outer)
     }
 
@@ -416,8 +419,7 @@ impl Layout {
     }
 
     pub(crate) fn region_from_max_rect(&self, max_rect: Rect) -> Region {
-        egui_assert!(!max_rect.any_nan());
-        egui_assert!(max_rect.is_finite());
+        debug_assert!(!max_rect.any_nan());
         let mut region = Region {
             min_rect: Rect::NOTHING, // temporary
             max_rect,
@@ -450,9 +452,8 @@ impl Layout {
     /// Given the cursor in the region, how much space is available
     /// for the next widget?
     fn available_from_cursor_max_rect(&self, cursor: Rect, max_rect: Rect) -> Rect {
-        egui_assert!(!cursor.any_nan());
-        egui_assert!(!max_rect.any_nan());
-        egui_assert!(max_rect.is_finite());
+        debug_assert!(!cursor.any_nan());
+        debug_assert!(!max_rect.any_nan());
 
         // NOTE: in normal top-down layout the cursor has moved below the current max_rect,
         // but the available shouldn't be negative.
@@ -506,7 +507,7 @@ impl Layout {
             avail.max.y = y;
         }
 
-        egui_assert!(!avail.any_nan());
+        debug_assert!(!avail.any_nan());
 
         avail
     }
@@ -517,7 +518,7 @@ impl Layout {
     /// Use `justify_and_align` to get the inner `widget_rect`.
     pub(crate) fn next_frame(&self, region: &Region, child_size: Vec2, spacing: Vec2) -> Rect {
         region.sanity_check();
-        egui_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
+        debug_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
 
         if self.main_wrap {
             let available_size = self.available_rect_before_wrap(region).size();
@@ -597,7 +598,7 @@ impl Layout {
 
     fn next_frame_ignore_wrap(&self, region: &Region, child_size: Vec2) -> Rect {
         region.sanity_check();
-        egui_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
+        debug_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
 
         let available_rect = self.available_rect_before_wrap(region);
 
@@ -630,16 +631,16 @@ impl Layout {
             frame_rect = frame_rect.translate(Vec2::Y * (region.cursor.top() - frame_rect.top()));
         }
 
-        egui_assert!(!frame_rect.any_nan());
-        egui_assert!(!frame_rect.is_negative());
+        debug_assert!(!frame_rect.any_nan());
+        debug_assert!(!frame_rect.is_negative());
 
         frame_rect
     }
 
     /// Apply justify (fill width/height) and/or alignment after calling `next_space`.
     pub(crate) fn justify_and_align(&self, frame: Rect, mut child_size: Vec2) -> Rect {
-        egui_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
-        egui_assert!(!frame.is_negative());
+        debug_assert!(child_size.x >= 0.0 && child_size.y >= 0.0);
+        debug_assert!(!frame.is_negative());
 
         if self.horizontal_justify() {
             child_size.x = child_size.x.at_least(frame.width()); // fill full width
@@ -657,10 +658,8 @@ impl Layout {
     ) -> Rect {
         let frame = self.next_frame_ignore_wrap(region, size);
         let rect = self.align_size_within_rect(size, frame);
-        egui_assert!(!rect.any_nan());
-        egui_assert!(!rect.is_negative());
-        egui_assert!((rect.width() - size.x).abs() < 1.0 || size.x == f32::INFINITY);
-        egui_assert!((rect.height() - size.y).abs() < 1.0 || size.y == f32::INFINITY);
+        debug_assert!(!rect.any_nan());
+        debug_assert!(!rect.is_negative());
         rect
     }
 
@@ -703,7 +702,7 @@ impl Layout {
         widget_rect: Rect,
         item_spacing: Vec2,
     ) {
-        egui_assert!(!cursor.any_nan());
+        debug_assert!(!cursor.any_nan());
         if self.main_wrap {
             if cursor.intersects(frame_rect.shrink(1.0)) {
                 // make row/column larger if necessary
@@ -766,7 +765,7 @@ impl Layout {
 
     /// Move to the next row in a wrapping layout.
     /// Otherwise does nothing.
-    pub(crate) fn end_row(&mut self, region: &mut Region, spacing: Vec2) {
+    pub(crate) fn end_row(&self, region: &mut Region, spacing: Vec2) {
         if self.main_wrap {
             match self.main_dir {
                 Direction::LeftToRight => {
@@ -789,7 +788,7 @@ impl Layout {
     }
 
     /// Set row height in horizontal wrapping layout.
-    pub(crate) fn set_row_height(&mut self, region: &mut Region, height: f32) {
+    pub(crate) fn set_row_height(&self, region: &mut Region, height: f32) {
         if self.main_wrap && self.is_horizontal() {
             region.cursor.max.y = region.cursor.min.y + height;
         }

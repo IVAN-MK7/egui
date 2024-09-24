@@ -1,6 +1,11 @@
 //! The input needed by egui.
 
-use crate::emath::*;
+use epaint::ColorImage;
+
+use crate::{
+    emath::{Pos2, Rect, Vec2},
+    Key, Theme, ViewportId, ViewportIdMap,
+};
 
 /// What the integrations provides to egui at the start of each frame.
 ///
@@ -9,10 +14,19 @@ use crate::emath::*;
 /// You can check if `egui` is using the inputs using
 /// [`crate::Context::wants_pointer_input`] and [`crate::Context::wants_keyboard_input`].
 ///
-/// All coordinates are in points (logical pixels) with origin (0, 0) in the top left corner.
+/// All coordinates are in points (logical pixels) with origin (0, 0) in the top left .corner.
+///
+/// Ii "points" can be calculated from native physical pixels
+/// using `pixels_per_point` = [`crate::Context::zoom_factor`] * `native_pixels_per_point`;
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct RawInput {
+    /// The id of the active viewport.
+    pub viewport_id: ViewportId,
+
+    /// Information about all egui viewports.
+    pub viewports: ViewportIdMap<ViewportInfo>,
+
     /// Position and size of the area that egui should use, in points.
     /// Usually you would set this to
     ///
@@ -22,11 +36,6 @@ pub struct RawInput {
     ///
     /// `None` will be treated as "same as last frame", with the default being a very big area.
     pub screen_rect: Option<Rect>,
-
-    /// Also known as device pixel ratio, > 1 for high resolution screens.
-    /// If text looks blurry you probably forgot to set this.
-    /// Set this the first frame, whenever it changes, or just on every frame.
-    pub pixels_per_point: Option<f32>,
 
     /// Maximum size of one side of the font texture.
     ///
@@ -67,13 +76,19 @@ pub struct RawInput {
     ///
     /// False when the user alt-tab away from the application, for instance.
     pub focused: bool,
+
+    /// Does the OS use dark or light mode?
+    ///
+    /// `None` means "don't know".
+    pub system_theme: Option<Theme>,
 }
 
 impl Default for RawInput {
     fn default() -> Self {
         Self {
+            viewport_id: ViewportId::ROOT,
+            viewports: std::iter::once((ViewportId::ROOT, Default::default())).collect(),
             screen_rect: None,
-            pixels_per_point: None,
             max_texture_side: None,
             time: None,
             predicted_dt: 1.0 / 60.0,
@@ -82,35 +97,49 @@ impl Default for RawInput {
             hovered_files: Default::default(),
             dropped_files: Default::default(),
             focused: true, // integrations opt into global focus tracking
+            system_theme: None,
         }
     }
 }
 
 impl RawInput {
+    /// Info about the active viewport
+    #[inline]
+    pub fn viewport(&self) -> &ViewportInfo {
+        self.viewports.get(&self.viewport_id).expect("Failed to find current viewport in egui RawInput. This is the fault of the egui backend")
+    }
+
     /// Helper: move volatile (deltas and events), clone the rest.
     ///
     /// * [`Self::hovered_files`] is cloned.
     /// * [`Self::dropped_files`] is moved.
-    pub fn take(&mut self) -> RawInput {
-        RawInput {
+    pub fn take(&mut self) -> Self {
+        Self {
+            viewport_id: self.viewport_id,
+            viewports: self
+                .viewports
+                .iter_mut()
+                .map(|(id, info)| (*id, info.take()))
+                .collect(),
             screen_rect: self.screen_rect.take(),
-            pixels_per_point: self.pixels_per_point.take(),
             max_texture_side: self.max_texture_side.take(),
-            time: self.time.take(),
+            time: self.time,
             predicted_dt: self.predicted_dt,
             modifiers: self.modifiers,
             events: std::mem::take(&mut self.events),
             hovered_files: self.hovered_files.clone(),
             dropped_files: std::mem::take(&mut self.dropped_files),
             focused: self.focused,
+            system_theme: self.system_theme,
         }
     }
 
     /// Add on new input.
     pub fn append(&mut self, newer: Self) {
         let Self {
+            viewport_id: viewport_ids,
+            viewports,
             screen_rect,
-            pixels_per_point,
             max_texture_side,
             time,
             predicted_dt,
@@ -119,10 +148,12 @@ impl RawInput {
             mut hovered_files,
             mut dropped_files,
             focused,
+            system_theme,
         } = newer;
 
+        self.viewport_id = viewport_ids;
+        self.viewports = viewports;
         self.screen_rect = screen_rect.or(self.screen_rect);
-        self.pixels_per_point = pixels_per_point.or(self.pixels_per_point);
         self.max_texture_side = max_texture_side.or(self.max_texture_side);
         self.time = time; // use latest time
         self.predicted_dt = predicted_dt; // use latest dt
@@ -131,6 +162,182 @@ impl RawInput {
         self.hovered_files.append(&mut hovered_files);
         self.dropped_files.append(&mut dropped_files);
         self.focused = focused;
+        self.system_theme = system_theme;
+    }
+}
+
+/// An input event from the backend into egui, about a specific [viewport](crate::viewport).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum ViewportEvent {
+    /// The user clicked the close-button on the window, or similar.
+    ///
+    /// If this is the root viewport, the application will exit
+    /// after this frame unless you send a
+    /// [`crate::ViewportCommand::CancelClose`] command.
+    ///
+    /// If this is not the root viewport,
+    /// it is up to the user to hide this viewport the next frame.
+    ///
+    /// This even will wake up both the child and parent viewport.
+    Close,
+}
+
+/// Information about the current viewport, given as input each frame.
+///
+/// `None` means "unknown".
+///
+/// All units are in ui "points", which can be calculated from native physical pixels
+/// using `pixels_per_point` = [`crate::Context::zoom_factor`] * `[Self::native_pixels_per_point`];
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct ViewportInfo {
+    /// Parent viewport, if known.
+    pub parent: Option<crate::ViewportId>,
+
+    /// Name of the viewport, if known.
+    pub title: Option<String>,
+
+    pub events: Vec<ViewportEvent>,
+
+    /// The OS native pixels-per-point.
+    ///
+    /// This should always be set, if known.
+    ///
+    /// On web this takes browser scaling into account,
+    /// and corresponds to [`window.devicePixelRatio`](https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio) in JavaScript.
+    pub native_pixels_per_point: Option<f32>,
+
+    /// Current monitor size in egui points.
+    pub monitor_size: Option<Vec2>,
+
+    /// The inner rectangle of the native window, in monitor space and ui points scale.
+    ///
+    /// This is the content rectangle of the viewport.
+    pub inner_rect: Option<Rect>,
+
+    /// The outer rectangle of the native window, in monitor space and ui points scale.
+    ///
+    /// This is the content rectangle plus decoration chrome.
+    pub outer_rect: Option<Rect>,
+
+    /// Are we minimized?
+    pub minimized: Option<bool>,
+
+    /// Are we maximized?
+    pub maximized: Option<bool>,
+
+    /// Are we in fullscreen mode?
+    pub fullscreen: Option<bool>,
+
+    /// Is the window focused and able to receive input?
+    ///
+    /// This should be the same as [`RawInput::focused`].
+    pub focused: Option<bool>,
+}
+
+impl ViewportInfo {
+    /// This viewport has been told to close.
+    ///
+    /// If this is the root viewport, the application will exit
+    /// after this frame unless you send a
+    /// [`crate::ViewportCommand::CancelClose`] command.
+    ///
+    /// If this is not the root viewport,
+    /// it is up to the user to hide this viewport the next frame.
+    pub fn close_requested(&self) -> bool {
+        self.events
+            .iter()
+            .any(|&event| event == ViewportEvent::Close)
+    }
+
+    /// Helper: move [`Self::events`], clone the other fields.
+    pub fn take(&mut self) -> Self {
+        Self {
+            parent: self.parent,
+            title: self.title.clone(),
+            events: std::mem::take(&mut self.events),
+            native_pixels_per_point: self.native_pixels_per_point,
+            monitor_size: self.monitor_size,
+            inner_rect: self.inner_rect,
+            outer_rect: self.outer_rect,
+            minimized: self.minimized,
+            maximized: self.maximized,
+            fullscreen: self.fullscreen,
+            focused: self.focused,
+        }
+    }
+
+    pub fn ui(&self, ui: &mut crate::Ui) {
+        let Self {
+            parent,
+            title,
+            events,
+            native_pixels_per_point,
+            monitor_size,
+            inner_rect,
+            outer_rect,
+            minimized,
+            maximized,
+            fullscreen,
+            focused,
+        } = self;
+
+        crate::Grid::new("viewport_info").show(ui, |ui| {
+            ui.label("Parent:");
+            ui.label(opt_as_str(parent));
+            ui.end_row();
+
+            ui.label("Title:");
+            ui.label(opt_as_str(title));
+            ui.end_row();
+
+            ui.label("Events:");
+            ui.label(format!("{events:?}"));
+            ui.end_row();
+
+            ui.label("Native pixels-per-point:");
+            ui.label(opt_as_str(native_pixels_per_point));
+            ui.end_row();
+
+            ui.label("Monitor size:");
+            ui.label(opt_as_str(monitor_size));
+            ui.end_row();
+
+            ui.label("Inner rect:");
+            ui.label(opt_rect_as_string(inner_rect));
+            ui.end_row();
+
+            ui.label("Outer rect:");
+            ui.label(opt_rect_as_string(outer_rect));
+            ui.end_row();
+
+            ui.label("Minimized:");
+            ui.label(opt_as_str(minimized));
+            ui.end_row();
+
+            ui.label("Maximized:");
+            ui.label(opt_as_str(maximized));
+            ui.end_row();
+
+            ui.label("Fullscreen:");
+            ui.label(opt_as_str(fullscreen));
+            ui.end_row();
+
+            ui.label("Focused:");
+            ui.label(opt_as_str(focused));
+            ui.end_row();
+
+            fn opt_rect_as_string(v: &Option<Rect>) -> String {
+                v.as_ref().map_or(String::new(), |r| {
+                    format!("Pos: {:?}, size: {:?}", r.min, r.size())
+                })
+            }
+
+            fn opt_as_str<T: std::fmt::Debug>(v: &Option<T>) -> String {
+                v.as_ref().map_or(String::new(), |v| format!("{v:?}"))
+            }
+        });
     }
 }
 
@@ -187,7 +394,23 @@ pub enum Event {
 
     /// A key was pressed or released.
     Key {
+        /// Most of the time, it's the logical key, heeding the active keymap -- for instance, if the user has Dvorak
+        /// keyboard layout, it will be taken into account.
+        ///
+        /// If it's impossible to determine the logical key on desktop platforms (say, in case of non-Latin letters),
+        /// `key` falls back to the value of the corresponding physical key. This is necessary for proper work of
+        /// standard shortcuts that only respond to Latin-based bindings (such as `Ctrl` + `V`).
         key: Key,
+
+        /// The physical key, corresponding to the actual position on the keyboard.
+        ///
+        /// This ignores keymaps, so it is not recommended to use this.
+        /// The only thing it makes sense for is things like games,
+        /// where e.g. the physical location of WSAD on QWERTY should always map to movement,
+        /// even if the user is using Dvorak or AZERTY.
+        ///
+        /// `eframe` does not (yet) implement this on web.
+        physical_key: Option<Key>,
 
         /// Was it pressed or released?
         pressed: bool,
@@ -207,6 +430,12 @@ pub enum Event {
 
     /// The mouse or touch moved to a new place.
     PointerMoved(Pos2),
+
+    /// The mouse moved, the units are unspecified.
+    /// Represents the actual movement of the mouse, without acceleration or clamped by screen edges.
+    /// `PointerMoved` and `MouseMoved` can be sent at the same time.
+    /// This event is optional. If the integration can not determine unfiltered motion it should not send this event.
+    MouseMoved(Vec2),
 
     /// A mouse button was pressed or released (or a touch started or stopped).
     PointerButton {
@@ -230,35 +459,20 @@ pub enum Event {
     /// On touch-up first send `PointerButton{pressed: false, …}` followed by `PointerLeft`.
     PointerGone,
 
-    /// How many points (logical pixels) the user scrolled.
+    /// Zoom scale factor this frame (e.g. from a pinch gesture).
     ///
-    /// The direction of the vector indicates how to move the _content_ that is being viewed.
-    /// So if you get positive values, the content being viewed should move to the right and down,
-    /// revealing new things to the left and up.
-    ///
-    /// A positive X-value indicates the content is being moved right,
-    /// as when swiping right on a touch-screen or track-pad with natural scrolling.
-    ///
-    /// A positive Y-value indicates the content is being moved down,
-    /// as when swiping down on a touch-screen or track-pad with natural scrolling.
-    ///
-    /// Shift-scroll should result in horizontal scrolling (it is up to the integrations to do this).
-    Scroll(Vec2),
-
-    /// Zoom scale factor this frame (e.g. from ctrl-scroll or pinch gesture).
     /// * `zoom = 1`: no change.
     /// * `zoom < 1`: pinch together
     /// * `zoom > 1`: pinch spread
+    ///
+    /// Note that egui also implement zooming by holding `Ctrl` and scrolling the mouse wheel,
+    /// so integration need NOT emit this `Zoom` event in those cases, just [`Self::MouseWheel`].
+    ///
+    /// As a user, check [`crate::InputState::smooth_scroll_delta`] to see if the user did any zooming this frame.
     Zoom(f32),
 
-    /// IME composition start.
-    CompositionStart,
-
-    /// A new IME candidate is being suggested.
-    CompositionUpdate(String),
-
-    /// IME composition ended with this final result.
-    CompositionEnd(String),
+    /// IME Event
+    Ime(ImeEvent),
 
     /// On touch screens, report this *in addition to*
     /// [`Self::PointerMoved`], [`Self::PointerButton`], [`Self::PointerGone`]
@@ -283,16 +497,22 @@ pub enum Event {
         force: Option<f32>,
     },
 
-    /// A raw mouse wheel event as sent by the backend (minus the z coordinate),
-    /// for implementing alternative custom controls.
-    /// Note that the same event can also trigger [`Self::Zoom`] and [`Self::Scroll`],
-    /// so you probably want to handle only one of them.
+    /// A raw mouse wheel event as sent by the backend.
+    ///
+    /// Used for scrolling.
     MouseWheel {
-        /// The unit of scrolling: points, lines, or pages.
+        /// The unit of `delta`: points, lines, or pages.
         unit: MouseWheelUnit,
 
-        /// The amount scrolled horizontally and vertically. The amount and direction corresponding
-        /// to one step of the wheel depends on the platform.
+        /// The direction of the vector indicates how to move the _content_ that is being viewed.
+        /// So if you get positive values, the content being viewed should move to the right and down,
+        /// revealing new things to the left and up.
+        ///
+        /// A positive X-value indicates the content is being moved right,
+        /// as when swiping right on a touch-screen or track-pad with natural scrolling.
+        ///
+        /// A positive Y-value indicates the content is being moved down,
+        /// as when swiping down on a touch-screen or track-pad with natural scrolling.
         delta: Vec2,
 
         /// The state of the modifier keys at the time of the event.
@@ -305,6 +525,31 @@ pub enum Event {
     /// An assistive technology (e.g. screen reader) requested an action.
     #[cfg(feature = "accesskit")]
     AccessKitActionRequest(accesskit::ActionRequest),
+
+    /// The reply of a screenshot requested with [`crate::ViewportCommand::Screenshot`].
+    Screenshot {
+        viewport_id: crate::ViewportId,
+        image: std::sync::Arc<ColorImage>,
+    },
+}
+
+/// IME event.
+///
+/// See <https://docs.rs/winit/latest/winit/event/enum.Ime.html>
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum ImeEvent {
+    /// Notifies when the IME was enabled.
+    Enabled,
+
+    /// A new IME candidate is being suggested.
+    Preedit(String),
+
+    /// IME composition ended with this final result.
+    Commit(String),
+
+    /// Notifies when the IME was disabled.
+    Disabled,
 }
 
 /// Mouse button (or similar for touch input)
@@ -338,7 +583,7 @@ pub const NUM_POINTER_BUTTONS: usize = 5;
 /// NOTE: For cross-platform uses, ALT+SHIFT is a bad combination of modifiers
 /// as on mac that is how you type special characters,
 /// so those key presses are usually not reported to egui.
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Modifiers {
     /// Either of the alt keys are down (option ⌥ on Mac).
@@ -359,6 +604,40 @@ pub struct Modifiers {
     /// This is so that egui can, for instance, select all text by checking for `command + A`
     /// and it will work on both Mac and Windows.
     pub command: bool,
+}
+
+impl std::fmt::Debug for Modifiers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_none() {
+            return write!(f, "Modifiers::NONE");
+        }
+
+        let Self {
+            alt,
+            ctrl,
+            shift,
+            mac_cmd,
+            command,
+        } = *self;
+
+        let mut debug = f.debug_struct("Modifiers");
+        if alt {
+            debug.field("alt", &true);
+        }
+        if ctrl {
+            debug.field("ctrl", &true);
+        }
+        if shift {
+            debug.field("shift", &true);
+        }
+        if mac_cmd {
+            debug.field("mac_cmd", &true);
+        }
+        if command {
+            debug.field("command", &true);
+        }
+        debug.finish()
+    }
 }
 
 impl Modifiers {
@@ -386,15 +665,6 @@ impl Modifiers {
     };
     pub const SHIFT: Self = Self {
         alt: false,
-        ctrl: false,
-        shift: true,
-        mac_cmd: false,
-        command: false,
-    };
-
-    #[deprecated = "Use `Modifiers::ALT | Modifiers::SHIFT` instead"]
-    pub const ALT_SHIFT: Self = Self {
-        alt: true,
         ctrl: false,
         shift: true,
         mac_cmd: false,
@@ -472,13 +742,68 @@ impl Modifiers {
         !self.alt && !self.shift && self.command
     }
 
-    /// Check for equality but with proper handling of [`Self::command`].
+    /// Checks that the `ctrl/cmd` matches, and that the `shift/alt` of the argument is a subset
+    /// of the pressed key (`self`).
+    ///
+    /// This means that if the pattern has not set `shift`, then `self` can have `shift` set or not.
+    ///
+    /// The reason is that many logical keys require `shift` or `alt` on some keyboard layouts.
+    /// For instance, in order to press `+` on an English keyboard, you need to press `shift` and `=`,
+    /// but a Swedish keyboard has dedicated `+` key.
+    /// So if you want to make a [`KeyboardShortcut`] looking for `Cmd` + `+`, it makes sense
+    /// to ignore the shift key.
+    /// Similarly, the `Alt` key is sometimes used to type special characters.
+    ///
+    /// However, if the pattern (the argument) explicitly requires the `shift` or `alt` keys
+    /// to be pressed, then they must be pressed.
     ///
     /// # Example:
     /// ```
     /// # use egui::Modifiers;
-    /// # let current_modifiers = Modifiers::default();
-    /// if current_modifiers.matches(Modifiers::ALT | Modifiers::SHIFT) {
+    /// # let pressed_modifiers = Modifiers::default();
+    /// if pressed_modifiers.matches(Modifiers::ALT | Modifiers::SHIFT) {
+    ///     // Alt and Shift are pressed, and nothing else
+    /// }
+    /// ```
+    ///
+    /// ## Behavior:
+    /// ```
+    /// # use egui::Modifiers;
+    /// assert!(Modifiers::CTRL.matches_logically(Modifiers::CTRL));
+    /// assert!(!Modifiers::CTRL.matches_logically(Modifiers::CTRL | Modifiers::SHIFT));
+    /// assert!((Modifiers::CTRL | Modifiers::SHIFT).matches_logically(Modifiers::CTRL));
+    /// assert!((Modifiers::CTRL | Modifiers::COMMAND).matches_logically(Modifiers::CTRL));
+    /// assert!((Modifiers::CTRL | Modifiers::COMMAND).matches_logically(Modifiers::COMMAND));
+    /// assert!((Modifiers::MAC_CMD | Modifiers::COMMAND).matches_logically(Modifiers::COMMAND));
+    /// assert!(!Modifiers::COMMAND.matches_logically(Modifiers::MAC_CMD));
+    /// ```
+    pub fn matches_logically(&self, pattern: Self) -> bool {
+        if pattern.alt && !self.alt {
+            return false;
+        }
+        if pattern.shift && !self.shift {
+            return false;
+        }
+
+        self.cmd_ctrl_matches(pattern)
+    }
+
+    /// Check for equality but with proper handling of [`Self::command`].
+    ///
+    /// `self` here are the currently pressed modifiers,
+    /// and the argument the pattern we are testing for.
+    ///
+    /// Note that this will require the `shift` and `alt` keys match, even though
+    /// these modifiers are sometimes required to produce some logical keys.
+    /// For instance, to press `+` on an English keyboard, you need to press `shift` and `=`,
+    /// but on a Swedish keyboard you can press the dedicated `+` key.
+    /// Therefore, you often want to use [`Self::matches_logically`] instead.
+    ///
+    /// # Example:
+    /// ```
+    /// # use egui::Modifiers;
+    /// # let pressed_modifiers = Modifiers::default();
+    /// if pressed_modifiers.matches(Modifiers::ALT | Modifiers::SHIFT) {
     ///     // Alt and Shift are pressed, and nothing else
     /// }
     /// ```
@@ -494,12 +819,28 @@ impl Modifiers {
     /// assert!((Modifiers::MAC_CMD | Modifiers::COMMAND).matches(Modifiers::COMMAND));
     /// assert!(!Modifiers::COMMAND.matches(Modifiers::MAC_CMD));
     /// ```
-    pub fn matches(&self, pattern: Modifiers) -> bool {
+    pub fn matches_exact(&self, pattern: Self) -> bool {
         // alt and shift must always match the pattern:
         if pattern.alt != self.alt || pattern.shift != self.shift {
             return false;
         }
 
+        self.cmd_ctrl_matches(pattern)
+    }
+
+    #[deprecated = "Renamed `matches_exact`, but maybe you want to use `matches_logically` instead"]
+    pub fn matches(&self, pattern: Self) -> bool {
+        self.matches_exact(pattern)
+    }
+
+    /// Checks only cmd/ctrl, not alt/shift.
+    ///
+    /// `self` here are the currently pressed modifiers,
+    /// and the argument the pattern we are testing for.
+    ///
+    /// This takes care to properly handle the difference between
+    /// [`Self::ctrl`], [`Self::command`] and [`Self::mac_cmd`].
+    pub fn cmd_ctrl_matches(&self, pattern: Self) -> bool {
         if pattern.mac_cmd {
             // Mac-specific match:
             if !self.mac_cmd {
@@ -544,12 +885,12 @@ impl Modifiers {
     /// assert!((Modifiers::CTRL | Modifiers::SHIFT).contains(Modifiers::CTRL));
     /// assert!(!Modifiers::CTRL.contains(Modifiers::CTRL | Modifiers::SHIFT));
     /// ```
-    pub fn contains(&self, query: Modifiers) -> bool {
-        if query == Modifiers::default() {
+    pub fn contains(&self, query: Self) -> bool {
+        if query == Self::default() {
             return true;
         }
 
-        let Modifiers {
+        let Self {
             alt,
             ctrl,
             shift,
@@ -558,27 +899,27 @@ impl Modifiers {
         } = *self;
 
         if alt && query.alt {
-            return self.contains(Modifiers {
+            return self.contains(Self {
                 alt: false,
                 ..query
             });
         }
         if shift && query.shift {
-            return self.contains(Modifiers {
+            return self.contains(Self {
                 shift: false,
                 ..query
             });
         }
 
         if (ctrl || command) && (query.ctrl || query.command) {
-            return self.contains(Modifiers {
+            return self.contains(Self {
                 command: false,
                 ctrl: false,
                 ..query
             });
         }
         if (mac_cmd || command) && (query.mac_cmd || query.command) {
-            return self.contains(Modifiers {
+            return self.contains(Self {
                 mac_cmd: false,
                 command: false,
                 ..query
@@ -671,232 +1012,24 @@ impl<'a> ModifierNames<'a> {
 
 // ----------------------------------------------------------------------------
 
-/// Keyboard keys.
-///
-/// Includes all keys egui is interested in (such as `Home` and `End`)
-/// plus a few that are useful for detecting keyboard shortcuts.
-///
-/// Many keys are omitted because they are not always physical keys (depending on keyboard language), e.g. `;` and `§`,
-/// and are therefore unsuitable as keyboard shortcuts if you want your app to be portable.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub enum Key {
-    ArrowDown,
-    ArrowLeft,
-    ArrowRight,
-    ArrowUp,
-
-    Escape,
-    Tab,
-    Backspace,
-    Enter,
-    Space,
-
-    Insert,
-    Delete,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-
-    /// The virtual keycode for the Minus key.
-    Minus,
-
-    /// The virtual keycode for the Plus/Equals key.
-    PlusEquals,
-
-    /// Either from the main row or from the numpad.
-    Num0,
-
-    /// Either from the main row or from the numpad.
-    Num1,
-
-    /// Either from the main row or from the numpad.
-    Num2,
-
-    /// Either from the main row or from the numpad.
-    Num3,
-
-    /// Either from the main row or from the numpad.
-    Num4,
-
-    /// Either from the main row or from the numpad.
-    Num5,
-
-    /// Either from the main row or from the numpad.
-    Num6,
-
-    /// Either from the main row or from the numpad.
-    Num7,
-
-    /// Either from the main row or from the numpad.
-    Num8,
-
-    /// Either from the main row or from the numpad.
-    Num9,
-
-    A, // Used for cmd+A (select All)
-    B,
-    C, // |CMD COPY|
-    D, // |CMD BOOKMARK|
-    E, // |CMD SEARCH|
-    F, // |CMD FIND firefox & chrome|
-    G, // |CMD FIND chrome|
-    H, // |CMD History|
-    I, // italics
-    J, // |CMD SEARCH firefox/DOWNLOAD chrome|
-    K, // Used for ctrl+K (delete text after cursor)
-    L,
-    M,
-    N,
-    O, // |CMD OPEN|
-    P, // |CMD PRINT|
-    Q,
-    R, // |CMD REFRESH|
-    S, // |CMD SAVE|
-    T, // |CMD TAB|
-    U, // Used for ctrl+U (delete text before cursor)
-    V, // |CMD PASTE|
-    W, // Used for ctrl+W (delete previous word)
-    X, // |CMD CUT|
-    Y,
-    Z, // |CMD UNDO|
-
-    // The function keys:
-    F1,
-    F2,
-    F3,
-    F4,
-    F5, // |CMD REFRESH|
-    F6,
-    F7,
-    F8,
-    F9,
-    F10,
-    F11,
-    F12,
-    F13,
-    F14,
-    F15,
-    F16,
-    F17,
-    F18,
-    F19,
-    F20,
-}
-
-impl Key {
-    /// Emoji or name representing the key
-    pub fn symbol_or_name(self) -> &'static str {
-        // TODO(emilk): add support for more unicode symbols (see for instance https://wincent.com/wiki/Unicode_representations_of_modifier_keys).
-        // Before we do we must first make sure they are supported in `Fonts` though,
-        // so perhaps this functions needs to take a `supports_character: impl Fn(char) -> bool` or something.
-        match self {
-            Key::ArrowDown => "⏷",
-            Key::ArrowLeft => "⏴",
-            Key::ArrowRight => "⏵",
-            Key::ArrowUp => "⏶",
-            Key::Minus => crate::MINUS_CHAR_STR,
-            Key::PlusEquals => "+",
-            _ => self.name(),
-        }
-    }
-
-    /// Human-readable English name.
-    pub fn name(self) -> &'static str {
-        match self {
-            Key::ArrowDown => "Down",
-            Key::ArrowLeft => "Left",
-            Key::ArrowRight => "Right",
-            Key::ArrowUp => "Up",
-            Key::Escape => "Escape",
-            Key::Tab => "Tab",
-            Key::Backspace => "Backspace",
-            Key::Enter => "Enter",
-            Key::Space => "Space",
-            Key::Insert => "Insert",
-            Key::Delete => "Delete",
-            Key::Home => "Home",
-            Key::End => "End",
-            Key::PageUp => "PageUp",
-            Key::PageDown => "PageDown",
-            Key::Minus => "Minus",
-            Key::PlusEquals => "Plus",
-            Key::Num0 => "0",
-            Key::Num1 => "1",
-            Key::Num2 => "2",
-            Key::Num3 => "3",
-            Key::Num4 => "4",
-            Key::Num5 => "5",
-            Key::Num6 => "6",
-            Key::Num7 => "7",
-            Key::Num8 => "8",
-            Key::Num9 => "9",
-            Key::A => "A",
-            Key::B => "B",
-            Key::C => "C",
-            Key::D => "D",
-            Key::E => "E",
-            Key::F => "F",
-            Key::G => "G",
-            Key::H => "H",
-            Key::I => "I",
-            Key::J => "J",
-            Key::K => "K",
-            Key::L => "L",
-            Key::M => "M",
-            Key::N => "N",
-            Key::O => "O",
-            Key::P => "P",
-            Key::Q => "Q",
-            Key::R => "R",
-            Key::S => "S",
-            Key::T => "T",
-            Key::U => "U",
-            Key::V => "V",
-            Key::W => "W",
-            Key::X => "X",
-            Key::Y => "Y",
-            Key::Z => "Z",
-            Key::F1 => "F1",
-            Key::F2 => "F2",
-            Key::F3 => "F3",
-            Key::F4 => "F4",
-            Key::F5 => "F5",
-            Key::F6 => "F6",
-            Key::F7 => "F7",
-            Key::F8 => "F8",
-            Key::F9 => "F9",
-            Key::F10 => "F10",
-            Key::F11 => "F11",
-            Key::F12 => "F12",
-            Key::F13 => "F13",
-            Key::F14 => "F14",
-            Key::F15 => "F15",
-            Key::F16 => "F16",
-            Key::F17 => "F17",
-            Key::F18 => "F18",
-            Key::F19 => "F19",
-            Key::F20 => "F20",
-        }
-    }
-}
-
-// ----------------------------------------------------------------------------
-
 /// A keyboard shortcut, e.g. `Ctrl+Alt+W`.
 ///
 /// Can be used with [`crate::InputState::consume_shortcut`]
 /// and [`crate::Context::format_shortcut`].
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct KeyboardShortcut {
     pub modifiers: Modifiers,
-    pub key: Key,
+
+    pub logical_key: Key,
 }
 
 impl KeyboardShortcut {
-    pub const fn new(modifiers: Modifiers, key: Key) -> Self {
-        Self { modifiers, key }
+    pub const fn new(modifiers: Modifiers, logical_key: Key) -> Self {
+        Self {
+            modifiers,
+            logical_key,
+        }
     }
 
     pub fn format(&self, names: &ModifierNames<'_>, is_mac: bool) -> String {
@@ -905,9 +1038,9 @@ impl KeyboardShortcut {
             s += names.concat;
         }
         if names.is_short {
-            s += self.key.symbol_or_name();
+            s += self.logical_key.symbol_or_name();
         } else {
-            s += self.key.name();
+            s += self.logical_key.name();
         }
         s
     }
@@ -933,8 +1066,9 @@ fn format_kb_shortcut() {
 impl RawInput {
     pub fn ui(&self, ui: &mut crate::Ui) {
         let Self {
+            viewport_id,
+            viewports,
             screen_rect,
-            pixels_per_point,
             max_texture_side,
             time,
             predicted_dt,
@@ -943,13 +1077,20 @@ impl RawInput {
             hovered_files,
             dropped_files,
             focused,
+            system_theme,
         } = self;
 
+        ui.label(format!("Active viwport: {viewport_id:?}"));
+        for (id, viewport) in viewports {
+            ui.group(|ui| {
+                ui.label(format!("Viewport {id:?}"));
+                ui.push_id(id, |ui| {
+                    viewport.ui(ui);
+                });
+            });
+        }
         ui.label(format!("screen_rect: {screen_rect:?} points"));
-        ui.label(format!("pixels_per_point: {pixels_per_point:?}"))
-            .on_hover_text(
-                "Also called HDPI factor.\nNumber of physical pixels per each logical pixel.",
-            );
+
         ui.label(format!("max_texture_side: {max_texture_side:?}"));
         if let Some(time) = time {
             ui.label(format!("time: {time:.3} s"));
@@ -961,6 +1102,7 @@ impl RawInput {
         ui.label(format!("hovered_files: {}", hovered_files.len()));
         ui.label(format!("dropped_files: {}", dropped_files.len()));
         ui.label(format!("focused: {focused}"));
+        ui.label(format!("system_theme: {system_theme:?}"));
         ui.scope(|ui| {
             ui.set_min_height(150.0);
             ui.label(format!("events: {events:#?}"))
@@ -1051,11 +1193,17 @@ pub struct EventFilter {
     /// Default: `false`
     pub tab: bool,
 
-    /// If `true`, pressing arrows will act on the widget,
-    /// and NOT move focus away from the focused widget.
+    /// If `true`, pressing horizontal arrows will act on the
+    /// widget, and NOT move focus away from the focused widget.
     ///
     /// Default: `false`
-    pub arrows: bool,
+    pub horizontal_arrows: bool,
+
+    /// If `true`, pressing vertical arrows will act on the
+    /// widget, and NOT move focus away from the focused widget.
+    ///
+    /// Default: `false`
+    pub vertical_arrows: bool,
 
     /// If `true`, pressing escape will act on the widget,
     /// and NOT surrender focus from the focused widget.
@@ -1069,7 +1217,8 @@ impl Default for EventFilter {
     fn default() -> Self {
         Self {
             tab: false,
-            arrows: false,
+            horizontal_arrows: false,
+            vertical_arrows: false,
             escape: false,
         }
     }
@@ -1080,10 +1229,8 @@ impl EventFilter {
         if let Event::Key { key, .. } = event {
             match key {
                 crate::Key::Tab => self.tab,
-                crate::Key::ArrowUp
-                | crate::Key::ArrowRight
-                | crate::Key::ArrowDown
-                | crate::Key::ArrowLeft => self.arrows,
+                crate::Key::ArrowUp | crate::Key::ArrowDown => self.vertical_arrows,
+                crate::Key::ArrowRight | crate::Key::ArrowLeft => self.horizontal_arrows,
                 crate::Key::Escape => self.escape,
                 _ => true,
             }

@@ -1,5 +1,5 @@
+use ahash::HashMap;
 use egui::{
-    ahash::HashMap,
     load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, LoadError},
     mutex::Mutex,
 };
@@ -20,10 +20,23 @@ pub struct FileLoader {
 }
 
 impl FileLoader {
-    pub const ID: &str = egui::generate_loader_id!(FileLoader);
+    pub const ID: &'static str = egui::generate_loader_id!(FileLoader);
 }
 
 const PROTOCOL: &str = "file://";
+
+/// Remove the leading slash from the path if the target OS is Windows.
+///
+/// This is because Windows paths are not supposed to start with a slash.
+/// For example, `file:///C:/path/to/file` is a valid URI, but `/C:/path/to/file` is not a valid path.
+#[inline]
+fn trim_extra_slash(s: &str) -> &str {
+    if cfg!(target_os = "windows") {
+        s.trim_start_matches('/')
+    } else {
+        s
+    }
+}
 
 impl BytesLoader for FileLoader {
     fn id(&self) -> &str {
@@ -32,12 +45,12 @@ impl BytesLoader for FileLoader {
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
         // File loader only supports the `file` protocol.
-        let Some(path) = uri.strip_prefix(PROTOCOL) else {
+        let Some(path) = uri.strip_prefix(PROTOCOL).map(trim_extra_slash) else {
             return Err(LoadError::NotSupported);
         };
 
         let mut cache = self.cache.lock();
-        if let Some(entry) = cache.get(path).cloned() {
+        if let Some(entry) = cache.get(uri).cloned() {
             // `path` has either begun loading, is loaded, or has failed to load.
             match entry {
                 Poll::Ready(Ok(file)) => Ok(BytesPoll::Ready {
@@ -54,7 +67,7 @@ impl BytesLoader for FileLoader {
 
             // Set the file to `pending` until we finish loading it.
             let path = path.to_owned();
-            cache.insert(path.clone(), Poll::Pending);
+            cache.insert(uri.to_owned(), Poll::Pending);
             drop(cache);
 
             // Spawn a thread to read the file, so that we don't block the render for too long.
@@ -63,16 +76,16 @@ impl BytesLoader for FileLoader {
                 .spawn({
                     let ctx = ctx.clone();
                     let cache = self.cache.clone();
-                    let _uri = uri.to_owned();
+                    let uri = uri.to_owned();
                     move || {
                         let result = match std::fs::read(&path) {
                             Ok(bytes) => {
-                                #[cfg(feature = "mime_guess")]
-                                let mime = mime_guess::from_path(&path)
+                                #[cfg(feature = "file")]
+                                let mime = mime_guess2::from_path(&path)
                                     .first_raw()
                                     .map(|v| v.to_owned());
 
-                                #[cfg(not(feature = "mime_guess"))]
+                                #[cfg(not(feature = "file"))]
                                 let mime = None;
 
                                 Ok(File {
@@ -82,10 +95,10 @@ impl BytesLoader for FileLoader {
                             }
                             Err(err) => Err(err.to_string()),
                         };
-                        let prev = cache.lock().insert(path, Poll::Ready(result));
+                        let prev = cache.lock().insert(uri.clone(), Poll::Ready(result));
                         assert!(matches!(prev, Some(Poll::Pending)));
                         ctx.request_repaint();
-                        log::trace!("finished loading {_uri:?}");
+                        log::trace!("finished loading {uri:?}");
                     }
                 })
                 .expect("failed to spawn thread");

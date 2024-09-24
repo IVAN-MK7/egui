@@ -1,23 +1,24 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
-use crate::load::TextureLoadResult;
+use emath::{Float as _, Rot2};
+use epaint::RectShape;
+
 use crate::{
-    load::{Bytes, SizeHint, SizedTexture, TexturePoll},
-    *,
+    load::{Bytes, SizeHint, SizedTexture, TextureLoadResult, TexturePoll},
+    pos2, Align2, Color32, Context, Id, Mesh, Painter, Rect, Response, Rounding, Sense, Shape,
+    Spinner, Stroke, TextStyle, TextureOptions, Ui, Vec2, Widget,
 };
-use emath::Rot2;
-use epaint::{util::FloatOrd, RectShape};
 
 /// A widget which displays an image.
 ///
 /// The task of actually loading the image is deferred to when the `Image` is added to the [`Ui`],
 /// and how it is loaded depends on the provided [`ImageSource`]:
 ///
-/// - [`ImageSource::Uri`] will load the image using the [asynchronous loading process][`load`].
-/// - [`ImageSource::Bytes`] will also load the image using the [asynchronous loading process][`load`], but with lower latency.
+/// - [`ImageSource::Uri`] will load the image using the [asynchronous loading process][`crate::load`].
+/// - [`ImageSource::Bytes`] will also load the image using the [asynchronous loading process][`crate::load`], but with lower latency.
 /// - [`ImageSource::Texture`] will use the provided texture.
 ///
-/// See [`load`] for more information.
+/// See [`crate::load`] for more information.
 ///
 /// ### Examples
 /// // Using it in a layout:
@@ -40,6 +41,7 @@ use epaint::{util::FloatOrd, RectShape};
 ///     .paint_at(ui, rect);
 /// # });
 /// ```
+///
 #[must_use = "You should put this widget in an ui with `ui.add(widget);`"]
 #[derive(Debug, Clone)]
 pub struct Image<'a> {
@@ -247,7 +249,7 @@ impl<'a> Image<'a> {
 
     /// Show a spinner when the image is loading.
     ///
-    /// By default this uses the value of [`Visuals::image_loading_spinners`].
+    /// By default this uses the value of [`crate::Visuals::image_loading_spinners`].
     #[inline]
     pub fn show_loading_spinner(mut self, show: bool) -> Self {
         self.show_loading_spinner = Some(show);
@@ -282,14 +284,40 @@ impl<'a> Image<'a> {
         }
     }
 
+    /// Returns the URI of the image.
+    ///
+    /// For GIFs, returns the URI without the frame number.
+    #[inline]
+    pub fn uri(&self) -> Option<&str> {
+        let uri = self.source.uri()?;
+
+        if let Ok((gif_uri, _index)) = decode_gif_uri(uri) {
+            Some(gif_uri)
+        } else {
+            Some(uri)
+        }
+    }
+
     #[inline]
     pub fn image_options(&self) -> &ImageOptions {
         &self.image_options
     }
 
     #[inline]
-    pub fn source(&self) -> &ImageSource<'a> {
-        &self.source
+    pub fn source(&'a self, ctx: &Context) -> ImageSource<'a> {
+        match &self.source {
+            ImageSource::Uri(uri) if is_gif_uri(uri) => {
+                let frame_uri = encode_gif_uri(uri, gif_frame_index(ctx, uri));
+                ImageSource::Uri(Cow::Owned(frame_uri))
+            }
+
+            ImageSource::Bytes { uri, bytes } if is_gif_uri(uri) || has_gif_magic_header(bytes) => {
+                let frame_uri = encode_gif_uri(uri, gif_frame_index(ctx, uri));
+                ctx.include_bytes(uri.clone(), bytes.clone());
+                ImageSource::Uri(Cow::Owned(frame_uri))
+            }
+            _ => self.source.clone(),
+        }
     }
 
     /// Load the image from its [`Image::source`], returning the resulting [`SizedTexture`].
@@ -299,8 +327,8 @@ impl<'a> Image<'a> {
     /// # Errors
     /// May fail if they underlying [`Context::try_load_texture`] call fails.
     pub fn load_for_size(&self, ctx: &Context, available_size: Vec2) -> TextureLoadResult {
-        let size_hint = self.size.hint(available_size);
-        self.source
+        let size_hint = self.size.hint(available_size, ctx.pixels_per_point());
+        self.source(ctx)
             .clone()
             .load(ctx, self.texture_options, size_hint)
     }
@@ -344,7 +372,7 @@ impl<'a> Widget for Image<'a> {
                 &self.image_options,
             );
         }
-        texture_load_result_response(&self.source, &tlr, response)
+        texture_load_result_response(&self.source(ui.ctx()), &tlr, response)
     }
 }
 
@@ -395,32 +423,30 @@ pub enum ImageFit {
 impl ImageFit {
     pub fn resolve(self, available_size: Vec2, image_size: Vec2) -> Vec2 {
         match self {
-            ImageFit::Original { scale } => image_size * scale,
-            ImageFit::Fraction(fract) => available_size * fract,
-            ImageFit::Exact(size) => size,
+            Self::Original { scale } => image_size * scale,
+            Self::Fraction(fract) => available_size * fract,
+            Self::Exact(size) => size,
         }
     }
 }
 
 impl ImageSize {
     /// Size hint for e.g. rasterizing an svg.
-    pub fn hint(&self, available_size: Vec2) -> SizeHint {
+    pub fn hint(&self, available_size: Vec2, pixels_per_point: f32) -> SizeHint {
         let size = match self.fit {
             ImageFit::Original { scale } => return SizeHint::Scale(scale.ord()),
             ImageFit::Fraction(fract) => available_size * fract,
             ImageFit::Exact(size) => size,
         };
-
         let size = size.min(self.max_size);
-
-        // TODO(emilk): take pixels_per_point into account here!
+        let size = size * pixels_per_point;
 
         // `inf` on an axis means "any value"
         match (size.x.is_finite(), size.y.is_finite()) {
             (true, true) => SizeHint::Size(size.x.round() as u32, size.y.round() as u32),
             (true, false) => SizeHint::Width(size.x.round() as u32),
             (false, true) => SizeHint::Height(size.y.round() as u32),
-            (false, false) => SizeHint::Scale(1.0.ord()),
+            (false, false) => SizeHint::Scale(pixels_per_point.ord()),
         }
     }
 
@@ -452,7 +478,7 @@ impl ImageSize {
     }
 }
 
-// TODO: unit-tests
+// TODO(jprochazk): unit-tests
 fn scale_to_fit(image_size: Vec2, available_size: Vec2, maintain_aspect_ratio: bool) -> Vec2 {
     if maintain_aspect_ratio {
         let ratio_x = available_size.x / image_size.x;
@@ -494,7 +520,7 @@ pub enum ImageSource<'a> {
     /// Load the image from an existing texture.
     ///
     /// The user is responsible for loading the texture, determining its size,
-    /// and allocating a [`TextureId`] for it.
+    /// and allocating a [`crate::TextureId`] for it.
     Texture(SizedTexture),
 
     /// Load the image from some raw bytes.
@@ -505,7 +531,7 @@ pub enum ImageSource<'a> {
     ///
     /// This instructs the [`Ui`] to cache the raw bytes, which are then further processed by any registered loaders.
     ///
-    /// See also [`include_image`] for an easy way to load and display static images.
+    /// See also [`crate::include_image`] for an easy way to load and display static images.
     ///
     /// See [`crate::load`] for more information.
     Bytes {
@@ -739,16 +765,14 @@ pub fn paint_texture_at(
     texture: &SizedTexture,
 ) {
     if options.bg_fill != Default::default() {
-        let mut mesh = Mesh::default();
-        mesh.add_colored_rect(rect, options.bg_fill);
-        painter.add(Shape::mesh(mesh));
+        painter.add(RectShape::filled(rect, options.rounding, options.bg_fill));
     }
 
     match options.rotation {
         Some((rot, origin)) => {
             // TODO(emilk): implement this using `PathShape` (add texture support to it).
             // This will also give us anti-aliasing of rotated images.
-            egui_assert!(
+            debug_assert!(
                 options.rounding == Rounding::ZERO,
                 "Image had both rounding and rotation. Please pick only one"
             );
@@ -764,9 +788,65 @@ pub fn paint_texture_at(
                 rounding: options.rounding,
                 fill: options.tint,
                 stroke: Stroke::NONE,
+                blur_width: 0.0,
                 fill_texture_id: texture.id,
                 uv: options.uv,
             });
         }
     }
 }
+
+/// gif uris contain the uri & the frame that will be displayed
+fn encode_gif_uri(uri: &str, frame_index: usize) -> String {
+    format!("{uri}#{frame_index}")
+}
+
+/// extracts uri and frame index
+/// # Errors
+/// Will return `Err` if `uri` does not match pattern {uri}-{frame_index}
+pub fn decode_gif_uri(uri: &str) -> Result<(&str, usize), String> {
+    let (uri, index) = uri
+        .rsplit_once('#')
+        .ok_or("Failed to find index separator '#'")?;
+    let index: usize = index
+        .parse()
+        .map_err(|_err| format!("Failed to parse gif frame index: {index:?} is not an integer"))?;
+    Ok((uri, index))
+}
+
+/// checks if uri is a gif file
+fn is_gif_uri(uri: &str) -> bool {
+    uri.ends_with(".gif") || uri.contains(".gif#")
+}
+
+/// checks if bytes are gifs
+pub fn has_gif_magic_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")
+}
+
+/// calculates at which frame the gif is
+fn gif_frame_index(ctx: &Context, uri: &str) -> usize {
+    let now = ctx.input(|i| Duration::from_secs_f64(i.time));
+
+    let durations: Option<GifFrameDurations> = ctx.data(|data| data.get_temp(Id::new(uri)));
+    if let Some(durations) = durations {
+        let frames: Duration = durations.0.iter().sum();
+        let pos_ms = now.as_millis() % frames.as_millis().max(1);
+        let mut cumulative_ms = 0;
+        for (i, duration) in durations.0.iter().enumerate() {
+            cumulative_ms += duration.as_millis();
+            if pos_ms < cumulative_ms {
+                let ms_until_next_frame = cumulative_ms - pos_ms;
+                ctx.request_repaint_after(Duration::from_millis(ms_until_next_frame as u64));
+                return i;
+            }
+        }
+        0
+    } else {
+        0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+/// Stores the durations between each frame of a gif
+pub struct GifFrameDurations(pub Arc<Vec<Duration>>);

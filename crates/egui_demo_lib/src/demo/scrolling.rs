@@ -1,8 +1,12 @@
-use egui::*;
+use egui::{
+    pos2, scroll_area::ScrollBarVisibility, Align, Align2, Color32, DragValue, NumExt, Rect,
+    ScrollArea, Sense, Slider, TextStyle, TextWrapMode, Ui, Vec2, Widget,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ScrollDemo {
+    ScrollAppearance,
     ScrollTo,
     ManyLines,
     LargeCanvas,
@@ -12,7 +16,7 @@ enum ScrollDemo {
 
 impl Default for ScrollDemo {
     fn default() -> Self {
-        Self::ScrollTo
+        Self::ScrollAppearance
     }
 }
 
@@ -20,12 +24,13 @@ impl Default for ScrollDemo {
 #[cfg_attr(feature = "serde", serde(default))]
 #[derive(Default, PartialEq)]
 pub struct Scrolling {
+    appearance: ScrollAppearance,
     demo: ScrollDemo,
     scroll_to: ScrollTo,
     scroll_stick_to: ScrollStickTo,
 }
 
-impl super::Demo for Scrolling {
+impl crate::Demo for Scrolling {
     fn name(&self) -> &'static str {
         "↕ Scrolling"
     }
@@ -33,17 +38,20 @@ impl super::Demo for Scrolling {
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
         egui::Window::new(self.name())
             .open(open)
-            .resizable(false)
+            .resizable(true)
+            .hscroll(false)
+            .vscroll(false)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for Scrolling {
+impl crate::View for Scrolling {
     fn ui(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.demo, ScrollDemo::ScrollAppearance, "Appearance");
             ui.selectable_value(&mut self.demo, ScrollDemo::ScrollTo, "Scroll to");
             ui.selectable_value(
                 &mut self.demo,
@@ -60,6 +68,9 @@ impl super::View for Scrolling {
         });
         ui.separator();
         match self.demo {
+            ScrollDemo::ScrollAppearance => {
+                self.appearance.ui(ui);
+            }
             ScrollDemo::ScrollTo => {
                 self.scroll_to.ui(ui);
             }
@@ -74,13 +85,81 @@ impl super::View for Scrolling {
             }
             ScrollDemo::Bidirectional => {
                 egui::ScrollArea::both().show(ui, |ui| {
-                    ui.style_mut().wrap = Some(false);
+                    ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
                     for _ in 0..100 {
                         ui.label(crate::LOREM_IPSUM);
                     }
                 });
             }
         }
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+#[derive(PartialEq)]
+struct ScrollAppearance {
+    num_lorem_ipsums: usize,
+    visibility: ScrollBarVisibility,
+}
+
+impl Default for ScrollAppearance {
+    fn default() -> Self {
+        Self {
+            num_lorem_ipsums: 2,
+            visibility: ScrollBarVisibility::default(),
+        }
+    }
+}
+
+impl ScrollAppearance {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let Self {
+            num_lorem_ipsums,
+            visibility,
+        } = self;
+
+        let mut scroll = ui.ctx().style().spacing.scroll;
+
+        scroll.ui(ui);
+
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            ui.label("ScrollBarVisibility:");
+            for option in ScrollBarVisibility::ALL {
+                ui.selectable_value(visibility, option, format!("{option:?}"));
+            }
+        });
+        ui.weak("When to show scroll bars; resize the window to see the effect.");
+
+        ui.add_space(8.0);
+
+        ui.ctx().all_styles_mut(|s| s.spacing.scroll = scroll);
+
+        ui.separator();
+
+        ui.add(
+            egui::Slider::new(num_lorem_ipsums, 1..=100)
+                .text("Content length")
+                .logarithmic(true),
+        );
+
+        ui.separator();
+
+        ScrollArea::vertical()
+            .auto_shrink(false)
+            .scroll_bar_visibility(*visibility)
+            .show(ui, |ui| {
+                ui.with_layout(
+                    egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true),
+                    |ui| {
+                        for _ in 0..*num_lorem_ipsums {
+                            ui.label(crate::LOREM_IPSUM_LONG);
+                        }
+                    },
+                );
+            });
     }
 }
 
@@ -93,7 +172,7 @@ fn huge_content_lines(ui: &mut egui::Ui) {
     let text_style = TextStyle::Body;
     let row_height = ui.text_style_height(&text_style);
     let num_rows = 10_000;
-    ScrollArea::vertical().auto_shrink([false; 2]).show_rows(
+    ScrollArea::vertical().auto_shrink(false).show_rows(
         ui,
         row_height,
         num_rows,
@@ -116,7 +195,7 @@ fn huge_content_painter(ui: &mut egui::Ui) {
     let num_rows = 10_000;
 
     ScrollArea::vertical()
-        .auto_shrink([false; 2])
+        .auto_shrink(false)
         .show_viewport(ui, |ui, viewport| {
             ui.set_height(row_height * num_rows as f32);
 
@@ -159,6 +238,7 @@ struct ScrollTo {
     track_item: usize,
     tack_item_align: Option<Align>,
     offset: f32,
+    delta: f32,
 }
 
 impl Default for ScrollTo {
@@ -167,23 +247,27 @@ impl Default for ScrollTo {
             track_item: 25,
             tack_item_align: Some(Align::Center),
             offset: 0.0,
+            delta: 64.0,
         }
     }
 }
 
-impl super::View for ScrollTo {
+impl crate::View for ScrollTo {
     fn ui(&mut self, ui: &mut Ui) {
         ui.label("This shows how you can scroll to a specific item or pixel offset");
+
+        let num_items = 500;
 
         let mut track_item = false;
         let mut go_to_scroll_offset = false;
         let mut scroll_top = false;
         let mut scroll_bottom = false;
+        let mut scroll_delta = None;
 
         ui.horizontal(|ui| {
             ui.label("Scroll to a specific item index:");
             track_item |= ui
-                .add(Slider::new(&mut self.track_item, 1..=50).text("Track Item"))
+                .add(Slider::new(&mut self.track_item, 1..=num_items).text("Track Item"))
                 .dragged();
         });
 
@@ -215,9 +299,21 @@ impl super::View for ScrollTo {
             scroll_bottom |= ui.button("Scroll to bottom").clicked();
         });
 
-        let mut scroll_area = ScrollArea::vertical()
-            .max_height(200.0)
-            .auto_shrink([false; 2]);
+        ui.horizontal(|ui| {
+            ui.label("Scroll by");
+            DragValue::new(&mut self.delta)
+                .speed(1.0)
+                .suffix("px")
+                .ui(ui);
+            if ui.button("⬇").clicked() {
+                scroll_delta = Some(self.delta * Vec2::UP); // scroll down (move contents up)
+            }
+            if ui.button("⬆").clicked() {
+                scroll_delta = Some(self.delta * Vec2::DOWN); // scroll up (move contents down)
+            }
+        });
+
+        let mut scroll_area = ScrollArea::vertical().max_height(200.0).auto_shrink(false);
         if go_to_scroll_offset {
             scroll_area = scroll_area.vertical_scroll_offset(self.offset);
         }
@@ -228,8 +324,12 @@ impl super::View for ScrollTo {
                 if scroll_top {
                     ui.scroll_to_cursor(Some(Align::TOP));
                 }
+                if let Some(scroll_delta) = scroll_delta {
+                    ui.scroll_with_delta(scroll_delta);
+                }
+
                 ui.vertical(|ui| {
-                    for item in 1..=50 {
+                    for item in 1..=num_items {
                         if track_item && item == self.track_item {
                             let response =
                                 ui.colored_label(Color32::YELLOW, format!("This is item {item}"));
@@ -259,7 +359,7 @@ impl super::View for ScrollTo {
 
         ui.separator();
         ui.vertical_centered(|ui| {
-            egui::reset_button(ui, self);
+            egui::reset_button(ui, self, "Reset");
             ui.add(crate::egui_github_link_file!());
         });
     }
@@ -272,7 +372,7 @@ struct ScrollStickTo {
     n_items: usize,
 }
 
-impl super::View for ScrollStickTo {
+impl crate::View for ScrollStickTo {
     fn ui(&mut self, ui: &mut Ui) {
         ui.label("Rows enter from the bottom, we want the scroll handle to start and stay at bottom unless moved");
 

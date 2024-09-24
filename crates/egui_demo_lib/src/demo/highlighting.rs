@@ -3,9 +3,9 @@
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct Highlighting {}
 
-impl super::Demo for Highlighting {
+impl crate::Demo for Highlighting {
     fn name(&self) -> &'static str {
-        "Highlighting"
+        "✨ Highlighting"
     }
 
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
@@ -13,14 +13,18 @@ impl super::Demo for Highlighting {
             .default_width(320.0)
             .open(open)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for Highlighting {
+impl crate::View for Highlighting {
     fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add(crate::egui_github_link_file!());
+        });
+
         ui.label("This demo demonstrates highlighting a widget.");
         ui.add_space(4.0);
         let label_response = ui.label("Hover me to highlight the button!");
