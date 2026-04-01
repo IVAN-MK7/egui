@@ -37,6 +37,56 @@ impl crate::Demo for GridTest {
 
 impl crate::View for GridTest {
     fn ui(&mut self, ui: &mut egui::Ui) {
+        let mut value_1 = 1;
+        let mut value_2 = 2;
+        let problematic_width = 15.0;
+        let working_width = 150.0;
+        ui.horizontal(|ui| {
+            egui_extras::StripBuilder::new(ui)
+                .size(egui_extras::Size::exact(problematic_width))
+                .horizontal(|mut strip| {
+                    strip.cell(|ui| {
+                        let mut str = match &value_1 {
+                            0 => "".to_string(),
+                            v => format!("{}", v),
+                        };
+                        let value_input = egui::TextEdit::singleline(&mut str)
+                            .hint_text("u8")
+                            .desired_width(22.);
+                        if ui.add(value_input).changed() {
+                            if !str.is_empty() {
+                                let value_parsed = str.parse::<usize>().unwrap_or(0);
+                                if value_parsed > 255 {
+                                    value_1 = 255;
+                                } else {
+                                    value_1 = value_parsed as u8;
+                                }
+                            } else {
+                                value_1 = 0;
+                            }
+                        }
+                        let mut str = match &value_2 {
+                            0 => "".to_string(),
+                            v => format!("{}", v),
+                        };
+                        let value_input = egui::TextEdit::singleline(&mut str)
+                            .hint_text("u8")
+                            .desired_width(22.);
+                        if ui.add(value_input).changed() {
+                            if !str.is_empty() {
+                                let value_parsed = str.parse::<usize>().unwrap_or(0);
+                                if value_parsed > 255 {
+                                    value_2 = 255;
+                                } else {
+                                    value_2 = value_parsed as u8;
+                                }
+                            } else {
+                                value_2 = 0;
+                            }
+                        }
+                    });
+                });
+        });
         ui.add(
             egui::Slider::new(&mut self.min_col_width, 0.0..=400.0).text("Minimum column width"),
         );
